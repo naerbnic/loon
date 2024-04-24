@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{refs::RefContext, Float, Integer, List, Value};
+use crate::{refs::GcContext, Float, Integer, List, Value};
 
 pub enum Constant {
     Integer(Integer),
@@ -30,7 +30,7 @@ impl ConstTableCache {
         }
     }
 
-    pub fn get(&mut self, ctxt: &RefContext, index: ConstIndex) -> super::Result<Value> {
+    pub fn get(&mut self, ctxt: &GcContext, index: ConstIndex) -> super::Result<Value> {
         if let Some(cached_value) = self.values.get(index.0).ok_or_else(|| {
             super::error::RuntimeError::new_operation_precondition_error("Invalid constant index.")
         })? {

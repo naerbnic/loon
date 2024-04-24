@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use function::Function;
-use refs::{GcRefVisitor, GcTraceable, Ref};
+use refs::{GcRefVisitor, GcTraceable, GcRef};
 
 use num_traits::ToPrimitive;
 
@@ -34,8 +34,8 @@ pub enum Value {
     Integer(Integer),
     Float(Float),
     String(Rc<String>),
-    List(Ref<List>),
-    Function(Ref<Function>),
+    List(GcRef<List>),
+    Function(GcRef<Function>),
 }
 
 impl Value {
@@ -49,7 +49,7 @@ impl Value {
         }
     }
 
-    pub fn as_function(&self) -> Result<&Ref<Function>, RuntimeError> {
+    pub fn as_function(&self) -> Result<&GcRef<Function>, RuntimeError> {
         match self {
             Value::Function(f) => Ok(f),
             _ => Err(RuntimeError::new_type_error("Value is not a function.")),
