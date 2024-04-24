@@ -4,9 +4,7 @@
 
 use std::rc::Rc;
 
-use crate::{Float, Integer};
-
-use super::instructions::InstructionList;
+use super::{instructions::InstructionList, value::{Float, Integer}};
 
 #[derive(Clone, Debug)]
 pub enum ConstIndex {

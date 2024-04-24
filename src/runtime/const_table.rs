@@ -1,8 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{refs::GcContext, Float, Integer, List};
+use crate::refs::GcContext;
 
-use super::{constants::ConstIndex, value::Value};
+use super::{
+    constants::ConstIndex,
+    value::{Float, Integer, Value},
+};
 
 pub enum ConstValue {
     Integer(Integer),

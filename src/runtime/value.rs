@@ -1,13 +1,29 @@
 use std::rc::Rc;
 
-use crate::{
-    function::Function,
-    refs::{GcRef, GcRefVisitor, GcTraceable},
-    Float, Integer, List,
-};
+use crate::refs::{GcRef, GcRefVisitor, GcTraceable};
 
 use super::error::RuntimeError;
 use num_traits::ToPrimitive;
+
+mod function;
+mod integer;
+mod list;
+
+pub use function::Function;
+pub use integer::Integer;
+pub use list::List;
+
+#[derive(Clone, Debug)]
+pub struct Float(f64);
+
+impl GcTraceable for Float {
+    fn trace<V>(&self, _visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        // No nested values to trace
+    }
+}
 
 #[derive(Clone)]
 pub enum Value {
