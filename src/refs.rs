@@ -237,6 +237,10 @@ where
     {
         self.try_with(body).expect("object was already destroyed")
     }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.obj, &other.obj)
+    }
 }
 
 impl<T> Clone for GcRef<T>

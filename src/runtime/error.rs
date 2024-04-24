@@ -1,17 +1,21 @@
 use std::borrow::Cow;
 
+#[derive(Debug)]
 pub struct TypeError {
     message: String,
 }
 
+#[derive(Debug)]
 pub struct ConversionError {
     message: String,
 }
 
+#[derive(Debug)]
 pub struct OperationPreconditionError {
     message: String,
 }
 
+#[derive(Debug)]
 pub enum RuntimeError {
     /// An error where the wrong type is used in an operation.
     Type(TypeError),

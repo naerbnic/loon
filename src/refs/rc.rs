@@ -156,9 +156,7 @@ impl<T> RcBoxPtr<T> {
 
 impl<T> Clone for RcBoxPtr<T> {
     fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-        }
+        Self { ptr: self.ptr }
     }
 }
 
@@ -184,6 +182,10 @@ impl<T> Rc<T> {
 
     pub fn as_ptr(&self) -> *const T {
         self.ptr.get_value_ref()
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.ptr.ptr.as_ptr() == other.ptr.ptr.as_ptr()
     }
 }
 
@@ -241,6 +243,10 @@ impl<T> Weak<T> {
         Ok(Rc {
             ptr: self.ptr.clone(),
         })
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.ptr.ptr.as_ptr() == other.ptr.ptr.as_ptr()
     }
 }
 

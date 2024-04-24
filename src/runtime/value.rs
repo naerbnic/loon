@@ -16,6 +16,17 @@ pub use list::List;
 #[derive(Clone, Debug)]
 pub struct Float(f64);
 
+impl Float {
+    pub fn new(value: f64) -> Self {
+        Float(value)
+    }
+
+    pub fn value(&self) -> f64 {
+        self.0
+    }
+
+}
+
 impl GcTraceable for Float {
     fn trace<V>(&self, _visitor: &mut V)
     where
@@ -49,6 +60,19 @@ impl Value {
         match self {
             Value::Function(f) => Ok(f),
             _ => Err(RuntimeError::new_type_error("Value is not a function.")),
+        }
+    }
+
+    /// Returns true if the two values are the same concrete value, or are the same
+    /// reference.
+    pub fn ref_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Integer(i1), Value::Integer(i2)) => i1 == i2,
+            (Value::Float(f1), Value::Float(f2)) => f1 as *const _ == f2 as *const _,
+            (Value::String(s1), Value::String(s2)) => s1 as *const _ == s2 as *const _,
+            (Value::List(l1), Value::List(l2)) => l1 as *const _ == l2 as *const _,
+            (Value::Function(f1), Value::Function(f2)) => f1 as *const _ == f2 as *const _,
+            _ => false,
         }
     }
 }
