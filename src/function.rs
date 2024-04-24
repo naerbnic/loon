@@ -1,16 +1,16 @@
 use std::rc::Rc;
 
 use crate::{
-    refs::{GcRefVisitor, GcTraceable, GcRef},
-    runtime::instructions::{InstructionList, StackFrame},
-    Value,
+    refs::{GcRef, GcRefVisitor, GcTraceable},
+    runtime::{
+        error::RuntimeError, instructions::InstructionList, stack_frame::StackFrame, value::Value,
+    },
 };
 
-pub mod native;
+use self::managed::ManagedFunction;
 
-pub struct LoonFunction {
-    inst_list: Rc<InstructionList>,
-}
+pub mod managed;
+pub mod native;
 
 pub struct Closure {
     function: GcRef<Function>,
@@ -18,28 +18,48 @@ pub struct Closure {
 }
 
 pub enum Function {
-    Loon(LoonFunction),
+    Managed(ManagedFunction),
+    Closure(Closure),
 }
 
 impl Function {
     pub fn new_loon(inst_list: Rc<InstructionList>) -> Self {
-        Function::Loon(LoonFunction { inst_list })
+        Function::Managed(ManagedFunction::new(Rc::new(vec![]), inst_list))
     }
 
-    pub fn make_stack_frame(&self, args: Vec<Value>) -> StackFrame {
+    pub fn make_stack_frame(&self, args: Vec<Value>) -> Result<StackFrame, RuntimeError> {
         match self {
-            Function::Loon(loon_func) => StackFrame::new(loon_func.inst_list.clone(), args),
+            Function::Managed(managed_func) => {
+                Ok(StackFrame::new(managed_func.inst_list().clone(), args))
+            }
+            Function::Closure(closure) => {
+                let mut inner_args = closure.captured_values.clone();
+                inner_args.extend(args);
+                let stack_frame = closure
+                    .function
+                    .try_with(move |f| f.make_stack_frame(inner_args))
+                    .ok_or_else(|| {
+                        RuntimeError::new_internal_error("Function is not available.")
+                    })??;
+                Ok(stack_frame)
+            }
         }
     }
 }
 
 impl GcTraceable for Function {
-    fn trace<V>(&self, _visitor: &mut V)
+    fn trace<V>(&self, visitor: &mut V)
     where
         V: GcRefVisitor,
     {
         match self {
-            Function::Loon(_) => {}
+            Function::Managed(_) => {}
+            Function::Closure(closure) => {
+                for value in closure.captured_values.iter() {
+                    value.trace(visitor);
+                }
+                visitor.visit(&closure.function);
+            }
         }
     }
 }

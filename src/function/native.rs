@@ -1,4 +1,4 @@
-use crate::Value;
+use crate::runtime::value::Value;
 
 pub struct TailCall {
     function: Value,
@@ -43,7 +43,7 @@ impl NativeFunctionContext {
             args,
             continuation,
         })
-    } 
+    }
 }
 
 pub trait NativeFunction {

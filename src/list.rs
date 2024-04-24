@@ -1,6 +1,5 @@
 use crate::{
-    refs::{GcRefVisitor, GcTraceable},
-    Value,
+    refs::{GcRefVisitor, GcTraceable}, runtime::value::Value,
 };
 
 #[derive(Clone)]

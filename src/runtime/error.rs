@@ -18,6 +18,7 @@ pub enum RuntimeError {
     Conversion(ConversionError),
     /// An error where an operation is attempted on an invalid state.
     OperationPrecondition(OperationPreconditionError),
+    InternalError(String),
 }
 
 impl RuntimeError {
@@ -37,5 +38,9 @@ impl RuntimeError {
         Self::OperationPrecondition(OperationPreconditionError {
             message: message.into().into_owned(),
         })
+    }
+
+    pub fn new_internal_error<'a>(message: impl Into<Cow<'a, str>>) -> Self {
+        Self::InternalError(message.into().into_owned())
     }
 }

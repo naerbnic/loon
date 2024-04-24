@@ -4,7 +4,7 @@ use num_traits::ToPrimitive;
 
 use crate::refs::{GcRefVisitor, GcTraceable};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Integer {
     Compact(i64),
     Big(Rc<num_bigint::BigInt>),
