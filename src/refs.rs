@@ -9,19 +9,19 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
 };
 
-use rc::{Rc, Weak};
+use std::rc::{Rc, Weak};
 
-mod rc;
+type InnerType<T> = RefCell<Option<T>>;
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 struct PtrKey(*const ());
 
 impl PtrKey {
-    pub fn from_rc<T>(p: &Rc<RefCell<T>>) -> Self {
+    pub fn from_rc<T>(p: &Rc<InnerType<T>>) -> Self {
         PtrKey(Rc::as_ptr(p) as *const ())
     }
 
-    pub fn from_weak<T>(p: &Weak<RefCell<T>>) -> Option<Self> {
+    pub fn from_weak<T>(p: &Weak<InnerType<T>>) -> Option<Self> {
         Some(PtrKey::from_rc(&p.upgrade()?))
     }
 }
@@ -44,13 +44,13 @@ impl GcRefVisitor for PtrVisitor<'_> {
     }
 }
 
-struct ObjectInfoImpl<T>(Rc<RefCell<T>>);
+struct ObjectInfoImpl<T>(Rc<InnerType<T>>);
 
 impl<T> ObjectInfoImpl<T>
 where
     T: GcTraceable,
 {
-    pub fn new(obj: Rc<RefCell<T>>) -> Self {
+    pub fn new(obj: Rc<InnerType<T>>) -> Self {
         Self(obj)
     }
 }
@@ -60,7 +60,9 @@ where
     T: GcTraceable,
 {
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
-        GcTraceable::trace(&*self.0.borrow(), &mut PtrVisitor(ptr_visitor));
+        if let Some(obj) = self.0.borrow().as_ref() {
+            obj.trace(&mut PtrVisitor(ptr_visitor));
+        }
     }
 
     fn destroy(self: Box<Self>) {
@@ -97,7 +99,7 @@ impl GcContext {
         }
     }
 
-    fn accept_rc<T>(&self, obj: Rc<RefCell<T>>)
+    fn accept_rc<T>(&self, obj: Rc<InnerType<T>>)
     where
         T: GcTraceable + 'static,
     {
@@ -124,19 +126,22 @@ impl GcContext {
         T: GcTraceable + 'static,
     {
         // We create a weakref that we can resurrect when needed.
-        let deferred_obj = Weak::new();
-        let obj = deferred_obj.clone();
+        let deferred_obj = Rc::new(RefCell::new(None));
+        let obj = Rc::downgrade(&deferred_obj);
         let weak_ctxt = self.downgrade();
         (GcRef { obj }, move |value| {
             let ctxt = match weak_ctxt.upgrade() {
                 Some(ctxt) => ctxt,
                 None => return,
             };
-            let owned_obj = match deferred_obj.resurrect(RefCell::new(value)) {
-                Ok(owned_obj) => owned_obj,
-                Err(_) => panic!("object was already resolved"),
-            };
-            ctxt.accept_rc(owned_obj);
+            {
+                let mut borrow = deferred_obj.borrow_mut();
+                if borrow.is_some() {
+                    panic!("object was already resolved");
+                }
+                borrow.replace(value);
+            }
+            ctxt.accept_rc(deferred_obj);
         })
     }
 
@@ -146,7 +151,7 @@ impl GcContext {
     where
         T: GcTraceable + 'static,
     {
-        let owned_obj = Rc::new(RefCell::new(value));
+        let owned_obj = Rc::new(RefCell::new(Some(value)));
         let obj = Rc::downgrade(&owned_obj);
         self.accept_rc(owned_obj);
 
@@ -198,7 +203,7 @@ pub struct GcRef<T>
 where
     T: GcTraceable + 'static,
 {
-    obj: Weak<RefCell<T>>,
+    obj: Weak<InnerType<T>>,
 }
 
 impl<T> GcRef<T>
@@ -211,7 +216,7 @@ where
     {
         let obj = self.obj.upgrade()?;
         let mut obj = obj.borrow_mut();
-        Some(body(&mut *obj))
+        Some(body(obj.as_mut()?))
     }
 
     pub fn try_with<F, R>(&self, body: F) -> Option<R>
@@ -220,7 +225,7 @@ where
     {
         let obj = self.obj.upgrade()?;
         let obj = obj.borrow();
-        Some(body(&*obj))
+        Some(body(obj.as_ref()?))
     }
 
     pub fn with_mut<F, R>(&self, body: F) -> R
