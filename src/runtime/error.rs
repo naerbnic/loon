@@ -48,3 +48,5 @@ impl RuntimeError {
         Self::InternalError(message.into().into_owned())
     }
 }
+
+pub type Result<T> = std::result::Result<T, RuntimeError>;

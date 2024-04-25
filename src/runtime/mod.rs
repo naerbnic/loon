@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use self::{instructions::InstructionList, stack_frame::StackFrame, value::Value};
+use self::{error::Result, instructions::InstructionList, stack_frame::StackFrame, value::Value};
 
 pub(super) mod value;
 pub(super) mod const_table;
@@ -10,8 +10,6 @@ pub(super) mod inst_set;
 pub(super) mod instructions;
 pub(super) mod stack_frame;
 pub(super) mod environment;
-
-pub type Result<T> = std::result::Result<T, error::RuntimeError>;
 
 pub struct Runtime {
     call_stack: Vec<StackFrame>,
@@ -33,7 +31,7 @@ impl Runtime {
                     self.call_stack.pop().expect("Call stack is empty.");
                     match self.call_stack.last_mut() {
                         Some(frame) => {
-                            frame.push_return_values(args);
+                            frame.push_return_values(args)?;
                         }
                         None => return Ok(args),
                     }
