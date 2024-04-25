@@ -129,23 +129,6 @@ impl<'a> ConstResolver for LocalResolver<'a> {
     }
 }
 
-/// Resolve a list of constant values into a new vector of runtime values.
-///
-/// These values are resolved into the GcContext, so they will participate in
-/// garbage collection.
-///
-/// We allow for self-referential constants and recursive constants via creating
-/// deferred references which will be resolved by the time that constant
-/// resolution completes.
-
-pub fn resolve_constants<'a>(
-    ctxt: &'a GlobalContext,
-    values: &'a [ConstValue],
-) -> Result<Vec<Value>, RuntimeError> {
-    let curr_layer = GlobalResolver::new(ctxt);
-    resolve_constants_impl(ctxt, &curr_layer, values)
-}
-
 fn resolve_constants_impl<'a>(
     ctxt: &'a GlobalContext,
     const_resolver: &'a dyn ConstResolver,
@@ -201,6 +184,40 @@ fn resolve_constants_impl<'a>(
     Ok(resolved_values)
 }
 
+#[derive(Clone)]
+pub struct ConstTable(Vec<ConstValue>);
+
+impl ConstTable {
+    pub fn new(values: Vec<ConstValue>) -> Self {
+        ConstTable(values)
+    }
+
+    /// Resolve a list of constant values into a new vector of runtime values.
+    ///
+    /// These values are resolved into the GlobalContext, so they will participate in
+    /// garbage collection.
+    ///
+    /// We allow for self-referential constants and recursive constants via creating
+    /// deferred references which will be resolved by the time that constant
+    /// resolution completes.
+    pub fn resolve(&self, ctxt: &GlobalContext) -> Result<ValueTable, RuntimeError> {
+        let curr_layer = GlobalResolver::new(ctxt);
+        let values = resolve_constants_impl(ctxt, &curr_layer, &self.0)?;
+        Ok(ValueTable(values))
+    }
+}
+
+#[derive(Clone)]
+pub struct ValueTable(Vec<Value>);
+
+impl ValueTable {
+    pub fn at(&self, index: usize) -> Result<&Value, RuntimeError> {
+        self.0
+            .get(index)
+            .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,26 +226,26 @@ mod tests {
     fn build_simple_values() {
         let ctxt = GlobalContext::new();
         let const_resolver = &ctxt;
-        let values = vec![
+        let const_table = ConstTable::new(vec![
             ConstValue::Integer(Integer::Compact(42)),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
             ConstValue::String("hello".to_string()),
-        ];
+        ]);
 
-        let resolved_values = resolve_constants(const_resolver, &values).unwrap();
-        assert_eq!(resolved_values.len(), 3);
+        let resolved_values = const_table.resolve(&ctxt).unwrap();
+        assert_eq!(resolved_values.0.len(), 3);
 
-        match &resolved_values[0] {
+        match resolved_values.at(0).unwrap() {
             Value::Integer(Integer::Compact(i)) => assert_eq!(*i, 42),
             _ => panic!("Expected integer value."),
         }
 
-        match &resolved_values[1] {
+        match resolved_values.at(1).unwrap() {
             Value::Float(f) => assert_eq!(f.value(), std::f64::consts::PI),
             _ => panic!("Expected float value."),
         }
 
-        match &resolved_values[2] {
+        match resolved_values.at(2).unwrap() {
             Value::String(s) => assert_eq!(s.as_str(), "hello"),
             _ => panic!("Expected string value."),
         }
@@ -237,20 +254,19 @@ mod tests {
     #[test]
     fn build_composite_value() {
         let ctxt = GlobalContext::new();
-        let const_resolver = &ctxt;
-        let values = vec![
+        let values = ConstTable::new(vec![
             ConstValue::Integer(Integer::Compact(42)),
             ConstValue::List(vec![
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
             ]),
-        ];
+        ]);
 
-        let resolved_values = resolve_constants(const_resolver, &values).unwrap();
-        assert_eq!(resolved_values.len(), 2);
+        let resolved_values = values.resolve(&ctxt).unwrap();
+        assert_eq!(resolved_values.0.len(), 2);
 
-        match &resolved_values[1] {
+        match resolved_values.at(1).unwrap() {
             Value::List(list) => {
                 list.with(|l| {
                     assert_eq!(l.len(), 3);
