@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 num-bigint = "0.4.4"
 num-traits = "0.2.18"
+
+[dev-dependencies]
+anyhow = "1.0.82"

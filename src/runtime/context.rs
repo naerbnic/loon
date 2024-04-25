@@ -41,3 +41,13 @@ impl GlobalContext {
         self.0.global_table.get(symbol).cloned()
     }
 }
+
+/// Crate internal methods for global context.
+impl GlobalContext {
+    pub(crate) fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
+    where
+        T: GcTraceable + 'static,
+    {
+        self.0.gc_context.create_deferred_ref()
+    }
+}
