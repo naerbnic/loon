@@ -5,7 +5,6 @@ use self::{
     value::Value,
 };
 
-pub(super) mod const_table;
 pub(super) mod constants;
 pub(super) mod context;
 pub(super) mod environment;

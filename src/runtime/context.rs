@@ -1,6 +1,6 @@
 //! Global contexts for the current state of a runtime environment.
 
-use std::{borrow::Borrow, collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use super::value::Value;
 use crate::refs::{GcContext, GcRef, GcTraceable};
