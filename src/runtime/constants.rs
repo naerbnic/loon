@@ -4,7 +4,10 @@
 
 use std::rc::Rc;
 
-use crate::{refs::GcContext, runtime::value::List};
+use crate::{
+    refs::GcContext,
+    runtime::value::{Function, List},
+};
 
 use super::{
     error::RuntimeError,
@@ -12,10 +15,32 @@ use super::{
     value::{Float, Integer, Value},
 };
 
+/// An index of a constant in the layers of constant values.
+///
+/// The layer is relative to the current context, with 0 being the current
+/// context, 1 being the parent context, and so on.
+///
+/// The index is the index in the specified layer's values.
+#[derive(Clone, Debug)]
+struct LayerIndex {
+    layer: usize,
+    index: usize,
+}
+
+impl LayerIndex {
+    pub fn new(layer: usize, index: usize) -> Self {
+        LayerIndex { layer, index }
+    }
+
+    pub fn new_in_base(index: usize) -> Self {
+        LayerIndex { layer: 0, index }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ConstIndex {
-    /// An index into the local constant table.
-    Local(usize),
+    /// An index into the stack of constant tables.
+    Local(LayerIndex),
 
     /// An index to be resolved globally by name.
     Global(Rc<String>),
@@ -23,12 +48,18 @@ pub enum ConstIndex {
 
 #[derive(Clone, Debug)]
 pub struct ConstFunction {
-    const_table: Vec<ConstIndex>,
+    /// Definitions of constants local to the function.
+    const_table: Vec<ConstValue>,
     instructions: Rc<InstructionList>,
 }
 
 #[derive(Clone, Debug)]
 pub enum ConstValue {
+    /// An external ref to a constant.
+    ///
+    /// The resolution layer starts with the parent, so a layer of 0 refers to
+    /// the parent context.
+    ExternalRef(ConstIndex),
     Integer(Integer),
     Float(Float),
     String(String),
@@ -40,6 +71,45 @@ pub trait ConstResolver {
     fn resolve_name(&self, ctxt: &GcContext, name: &str) -> Result<Value, RuntimeError>;
 }
 
+#[derive(Clone, Copy)]
+struct ValueLayer<'a> {
+    parent: Option<&'a ValueLayer<'a>>,
+    values: &'a [Value],
+}
+
+impl<'a> ValueLayer<'a> {
+    pub fn new(parent: Option<&'a ValueLayer<'a>>, values: &'a [Value]) -> Self {
+        ValueLayer { parent, values }
+    }
+
+    pub fn make_child<'p>(&'p self, values: &'p [Value]) -> ValueLayer<'p> {
+        ValueLayer {
+            parent: Some(self),
+            values,
+        }
+    }
+
+    pub fn parent(&self) -> Option<&ValueLayer<'_>> {
+        self.parent
+    }
+
+    pub fn get(&self, layer_index: &LayerIndex) -> Result<Value, RuntimeError> {
+        let mut layer = self;
+        for _ in 0..layer_index.layer {
+            layer = layer
+                .parent
+                .ok_or_else(|| RuntimeError::new_internal_error("Invalid layer index."))?;
+        }
+
+        let value = layer
+            .values
+            .get(layer_index.index)
+            .ok_or_else(|| RuntimeError::new_internal_error("Invalid index."))?
+            .clone();
+        Ok(value)
+    }
+}
+
 /// Resolve a list of constant values into a new vector of runtime values.
 ///
 /// These values are resolved into the GcContext, so they will participate in
@@ -48,17 +118,40 @@ pub trait ConstResolver {
 /// We allow for self-referential constants and recursive constants via creating
 /// deferred references which will be resolved by the time that constant
 /// resolution completes.
+
 pub fn resolve_constants<'a>(
     ctxt: &'a GcContext,
     const_resolver: &'a dyn ConstResolver,
     values: &'a [ConstValue],
 ) -> Result<Vec<Value>, RuntimeError> {
-    type ResolverFn<'b> = Box<dyn FnOnce(&[Value]) -> Result<(), RuntimeError> + 'b>;
+    resolve_constants_impl(ctxt, const_resolver, None, values)
+}
+
+fn resolve_constants_impl<'a>(
+    ctxt: &'a GcContext,
+    const_resolver: &'a dyn ConstResolver,
+    parent_layer: Option<&'a ValueLayer<'a>>,
+    values: &'a [ConstValue],
+) -> Result<Vec<Value>, RuntimeError> {
+    type ResolverFn<'b> = Box<dyn FnOnce(&ValueLayer<'_>) -> Result<(), RuntimeError> + 'b>;
     let mut resolved_values = Vec::with_capacity(values.len());
     let mut resolvers: Vec<Option<ResolverFn<'a>>> = Vec::with_capacity(values.len());
 
     for value in values {
         let (value, resolver) = match value {
+            ConstValue::ExternalRef(ConstIndex::Global(s)) => {
+                (const_resolver.resolve_name(ctxt, s.as_str())?, None)
+            }
+            ConstValue::ExternalRef(ConstIndex::Local(index)) => {
+                let value = parent_layer
+                    .ok_or_else(|| {
+                        RuntimeError::new_internal_error(
+                            "Cannot resolve external ref without parent.",
+                        )
+                    })?
+                    .get(index)?;
+                (value, None)
+            }
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
             ConstValue::String(s) => (Value::String(Rc::new(s.clone())), None),
@@ -68,7 +161,7 @@ pub fn resolve_constants<'a>(
                     let mut list_elems = Vec::with_capacity(list.len());
                     for index in list {
                         let list_elem = match index {
-                            ConstIndex::Local(index) => vs[*index].clone(),
+                            ConstIndex::Local(index) => vs.get(index)?,
                             ConstIndex::Global(name) => const_resolver.resolve_name(ctxt, name)?,
                         };
                         list_elems.push(list_elem);
@@ -79,14 +172,32 @@ pub fn resolve_constants<'a>(
 
                 (Value::List(deferred), Some(resolver))
             }
-            ConstValue::Function(_) => todo!(),
+            ConstValue::Function(const_func) => {
+                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
+                let resolver: ResolverFn<'a> = Box::new(move |vs| {
+                    let resolved_func_consts = resolve_constants_impl(
+                        ctxt,
+                        const_resolver,
+                        Some(vs),
+                        &const_func.const_table[..],
+                    )?;
+                    resolve_fn(Function::new_managed(
+                        resolved_func_consts,
+                        const_func.instructions.clone(),
+                    ));
+                    Ok(())
+                });
+                (Value::Function(deferred), Some(resolver))
+            }
         };
         resolved_values.push(value);
         resolvers.push(resolver);
     }
 
+    let curr_value_layer = ValueLayer::new(parent_layer, &resolved_values);
+
     for resolver in resolvers.into_iter().flatten() {
-        resolver(&resolved_values)?;
+        resolver(&curr_value_layer)?;
     }
 
     Ok(resolved_values)
@@ -140,9 +251,9 @@ mod tests {
         let values = vec![
             ConstValue::Integer(Integer::Compact(42)),
             ConstValue::List(vec![
-                ConstIndex::Local(0),
-                ConstIndex::Local(0),
-                ConstIndex::Local(0),
+                ConstIndex::Local(LayerIndex::new_in_base(0)),
+                ConstIndex::Local(LayerIndex::new_in_base(0)),
+                ConstIndex::Local(LayerIndex::new_in_base(0)),
             ]),
         ];
 

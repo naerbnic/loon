@@ -23,8 +23,8 @@ pub enum Function {
 }
 
 impl Function {
-    pub fn new_loon(inst_list: Rc<InstructionList>) -> Self {
-        Function::Managed(ManagedFunction::new(Rc::new(vec![]), inst_list))
+    pub fn new_managed(consts: Vec<Value>, inst_list: Rc<InstructionList>) -> Self {
+        Function::Managed(ManagedFunction::new(Rc::new(consts), inst_list))
     }
 
     pub fn make_stack_frame(&self, args: Vec<Value>) -> Result<StackFrame, RuntimeError> {
