@@ -1,17 +1,22 @@
 use std::rc::Rc;
 
-use self::{error::Result, instructions::InstructionList, stack_frame::StackFrame, value::Value};
+use self::{
+    context::GlobalContext, error::Result, instructions::InstructionList, stack_frame::StackFrame,
+    value::Value,
+};
 
-pub(super) mod value;
 pub(super) mod const_table;
 pub(super) mod constants;
+pub(super) mod context;
+pub(super) mod environment;
 pub(super) mod error;
 pub(super) mod inst_set;
 pub(super) mod instructions;
 pub(super) mod stack_frame;
-pub(super) mod environment;
+pub(super) mod value;
 
 pub struct Runtime {
+    global_context: GlobalContext,
     call_stack: Vec<StackFrame>,
 }
 
@@ -19,6 +24,7 @@ impl Runtime {
     pub fn new(inst: Rc<InstructionList>) -> Self {
         let initial_frame = StackFrame::new(inst, Vec::new());
         Runtime {
+            global_context: GlobalContext::new(),
             call_stack: vec![initial_frame],
         }
     }
