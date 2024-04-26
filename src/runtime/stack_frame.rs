@@ -2,20 +2,20 @@ use std::{borrow::Cow, rc::Rc};
 
 use super::{
     error::RuntimeError,
-    instructions::{CallStepResult, FrameChange, Instruction, InstructionList, InstructionResult}, value::Value,
+    instructions::{CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult}, value::Value,
 };
 
 struct InstState {
     pc: usize,
-    inst_list: Rc<InstructionList>,
+    inst_list: Rc<InstEvalList>,
 }
 
 impl InstState {
-    pub fn new(inst_list: Rc<InstructionList>) -> Self {
+    pub fn new(inst_list: Rc<InstEvalList>) -> Self {
         InstState { pc: 0, inst_list }
     }
 
-    pub fn curr_inst(&self) -> &dyn Instruction {
+    pub fn curr_inst(&self) -> &dyn InstEval {
         self.inst_list.inst_at(self.pc).unwrap()
     }
 
@@ -70,7 +70,7 @@ pub struct StackFrame {
 }
 
 impl StackFrame {
-    pub fn new(inst_list: Rc<InstructionList>, args: Vec<Value>) -> Self {
+    pub fn new(inst_list: Rc<InstEvalList>, args: Vec<Value>) -> Self {
         StackFrame {
             inst_state: InstState::new(inst_list),
             local_stack: LocalStack::from_args(args),

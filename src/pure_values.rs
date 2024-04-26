@@ -1,8 +1,8 @@
+//! Values that can be shared between the binary and runtime.
+
 use std::rc::Rc;
 
 use num_traits::ToPrimitive;
-
-use crate::refs::{GcRefVisitor, GcTraceable};
 
 #[derive(Clone, Debug)]
 pub enum Integer {
@@ -42,15 +42,6 @@ impl PartialEq for Integer {
     }
 }
 
-impl GcTraceable for Integer {
-    fn trace<V>(&self, _visitor: &mut V)
-    where
-        V: GcRefVisitor,
-    {
-        // No nested values to trace
-    }
-}
-
 impl From<i64> for Integer {
     fn from(i: i64) -> Self {
         Integer::Compact(i)
@@ -64,5 +55,18 @@ impl From<num_bigint::BigInt> for Integer {
         } else {
             Integer::Big(Rc::new(i))
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Float(f64);
+
+impl Float {
+    pub fn new(value: f64) -> Self {
+        Float(value)
+    }
+
+    pub fn value(&self) -> f64 {
+        self.0
     }
 }

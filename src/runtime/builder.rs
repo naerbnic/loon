@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 
-use super::{
-    constants::ConstTable,
-    context::{GlobalContext, GlobalSymbol},
-    error::RuntimeError,
-    Runtime,
-};
+use crate::binary::symbols::GlobalSymbol;
+
+use super::{constants::ConstTable, context::GlobalContext, error::RuntimeError, Runtime};
 
 pub struct GlobalSymbolSet {
     const_table: ConstTable,

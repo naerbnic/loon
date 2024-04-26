@@ -1,11 +1,11 @@
 use super::{
     error::RuntimeError,
-    instructions::{Instruction, InstructionResult},
+    instructions::{InstEval, InstructionResult},
 };
 
 pub struct Return;
 
-impl Instruction for Return {
+impl InstEval for Return {
     fn execute(
         &self,
         stack: &mut super::stack_frame::LocalStack,

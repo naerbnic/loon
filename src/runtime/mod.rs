@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use self::{
-    context::GlobalContext, error::Result, instructions::InstructionList, stack_frame::StackFrame,
+    context::GlobalContext, error::Result, instructions::InstEvalList, stack_frame::StackFrame,
     value::Value,
 };
 

@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::binary::instructions::InstructionList;
+
 use super::{error::RuntimeError, stack_frame::LocalStack, value::Value};
 
 pub enum InstructionResult {
@@ -25,16 +27,20 @@ pub enum InstructionResult {
 /// These are reused across multiple stack frames, so they should be immutable.
 /// Further, as they will likely be shared across multiple contexts, they should
 /// not contain any references to `loon::Value` objects.
-pub(crate) trait Instruction {
+pub(crate) trait InstEval {
     fn execute(&self, stack: &mut LocalStack) -> Result<InstructionResult, RuntimeError>;
 }
 
-pub type InstPtr = Rc<dyn Instruction>;
+pub type InstPtr = Rc<dyn InstEval>;
 
-pub struct InstructionList(Vec<InstPtr>);
+pub struct InstEvalList(Vec<InstPtr>);
 
-impl InstructionList {
-    pub fn inst_at(&self, index: usize) -> Option<&dyn Instruction> {
+impl InstEvalList {
+    pub fn from_inst_list(inst_list: &InstructionList) -> Self {
+        todo!()
+    }
+
+    pub fn inst_at(&self, index: usize) -> Option<&dyn InstEval> {
         self.0.get(index).map(|e| &**e)
     }
 
@@ -43,13 +49,13 @@ impl InstructionList {
     }
 }
 
-impl FromIterator<InstPtr> for InstructionList {
+impl FromIterator<InstPtr> for InstEvalList {
     fn from_iter<T: IntoIterator<Item = InstPtr>>(iter: T) -> Self {
-        InstructionList(FromIterator::from_iter(iter))
+        InstEvalList(FromIterator::from_iter(iter))
     }
 }
 
-impl std::fmt::Debug for InstructionList {
+impl std::fmt::Debug for InstEvalList {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_tuple("InstructionList")
             .field(&self.0.len())

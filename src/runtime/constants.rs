@@ -4,67 +4,12 @@
 
 use std::rc::Rc;
 
-use crate::runtime::value::{Function, List};
-
-use super::{
-    context::{GlobalContext, GlobalSymbol},
-    error::RuntimeError,
-    instructions::InstructionList,
-    value::{Float, Integer, Value},
+use crate::{
+    binary::const_table::{ConstIndex, ConstValue, LayerIndex},
+    runtime::value::{Function, List},
 };
 
-/// An index of a constant in the layers of constant values.
-///
-/// The layer is relative to the current context, with 0 being the current
-/// context, 1 being the parent context, and so on.
-///
-/// The index is the index in the specified layer's values.
-#[derive(Clone, Debug)]
-struct LayerIndex {
-    layer: usize,
-    index: usize,
-}
-
-impl LayerIndex {
-    pub fn new(layer: usize, index: usize) -> Self {
-        LayerIndex { layer, index }
-    }
-
-    #[cfg(test)]
-    pub fn new_in_base(index: usize) -> Self {
-        LayerIndex { layer: 0, index }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum ConstIndex {
-    /// An index into the stack of constant tables.
-    Local(LayerIndex),
-
-    /// An index to be resolved globally by name.
-    Global(GlobalSymbol),
-}
-
-#[derive(Clone, Debug)]
-pub struct ConstFunction {
-    /// Definitions of constants local to the function.
-    const_table: Vec<ConstValue>,
-    instructions: Rc<InstructionList>,
-}
-
-#[derive(Clone, Debug)]
-pub enum ConstValue {
-    /// An external ref to a constant.
-    ///
-    /// The resolution layer starts with the parent, so a layer of 0 refers to
-    /// the parent context.
-    ExternalRef(ConstIndex),
-    Integer(Integer),
-    Float(Float),
-    String(String),
-    List(Vec<ConstIndex>),
-    Function(ConstFunction),
-}
+use super::{context::GlobalContext, error::RuntimeError, value::Value};
 
 pub trait ConstResolver {
     fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError>;
@@ -112,15 +57,15 @@ impl<'a> ConstResolver for LocalResolver<'a> {
     fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError> {
         match index {
             ConstIndex::Local(layer_index) => {
-                if layer_index.layer > 0 {
+                if layer_index.layer() > 0 {
                     self.parent.resolve(&ConstIndex::Local(LayerIndex::new(
-                        layer_index.layer - 1,
-                        layer_index.index,
+                        layer_index.layer() - 1,
+                        layer_index.index(),
                     )))?;
                 }
                 let value = self
                     .values
-                    .get(layer_index.index)
+                    .get(layer_index.index())
                     .ok_or_else(|| RuntimeError::new_internal_error("Invalid index."))?;
                 Ok(value.clone())
             }
@@ -161,10 +106,10 @@ fn resolve_constants_impl<'a>(
                 let (deferred, resolve_fn) = ctxt.create_deferred_ref();
                 let resolver: ResolverFn<'a> = Box::new(move |vs| {
                     let resolved_func_consts =
-                        resolve_constants_impl(ctxt, vs, &const_func.const_table[..])?;
+                        resolve_constants_impl(ctxt, vs, const_func.const_table())?;
                     resolve_fn(Function::new_managed(
                         resolved_func_consts,
-                        const_func.instructions.clone(),
+                        Rc::new(ctxt.resolve_instructions(const_func.instructions())?),
                     ));
                     Ok(())
                 });
@@ -220,6 +165,8 @@ impl ValueTable {
 
 #[cfg(test)]
 mod tests {
+    use crate::pure_values::{Float, Integer};
+
     use super::*;
 
     #[test]

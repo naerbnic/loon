@@ -6,17 +6,11 @@ use std::{
     rc::Rc,
 };
 
-use super::{error::RuntimeError, value::Value};
-use crate::refs::{GcContext, GcRef, GcTraceable};
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct GlobalSymbol(Rc<String>);
-
-impl GlobalSymbol {
-    pub fn new(symbol: impl Into<String>) -> Self {
-        GlobalSymbol(Rc::new(symbol.into()))
-    }
-}
+use super::{error::RuntimeError, instructions::InstEvalList, value::Value};
+use crate::{
+    binary::{instructions::InstructionList, symbols::GlobalSymbol},
+    refs::{GcContext, GcRef, GcTraceable},
+};
 
 struct Inner {
     gc_context: GcContext,
@@ -43,6 +37,13 @@ impl GlobalContext {
 
     pub fn lookup_symbol(&self, symbol: &GlobalSymbol) -> Option<Value> {
         self.0.global_table.borrow().get(symbol).cloned()
+    }
+
+    pub fn resolve_instructions(
+        &self,
+        inst_list: &InstructionList,
+    ) -> Result<InstEvalList, RuntimeError> {
+        todo!()
     }
 
     pub fn insert_symbols(
