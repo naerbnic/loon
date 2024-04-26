@@ -1,8 +1,12 @@
 //! Global contexts for the current state of a runtime environment.
 
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{hash_map, HashMap},
+    rc::Rc,
+};
 
-use super::value::Value;
+use super::{error::RuntimeError, value::Value};
 use crate::refs::{GcContext, GcRef, GcTraceable};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -16,7 +20,7 @@ impl GlobalSymbol {
 
 struct Inner {
     gc_context: GcContext,
-    global_table: HashMap<GlobalSymbol, Value>,
+    global_table: RefCell<HashMap<GlobalSymbol, Value>>,
 }
 
 #[derive(Clone)]
@@ -26,7 +30,7 @@ impl GlobalContext {
     pub fn new() -> Self {
         GlobalContext(Rc::new(Inner {
             gc_context: GcContext::new(),
-            global_table: HashMap::new(),
+            global_table: RefCell::new(HashMap::new()),
         }))
     }
 
@@ -38,7 +42,25 @@ impl GlobalContext {
     }
 
     pub fn lookup_symbol(&self, symbol: &GlobalSymbol) -> Option<Value> {
-        self.0.global_table.get(symbol).cloned()
+        self.0.global_table.borrow().get(symbol).cloned()
+    }
+
+    pub fn insert_symbols(
+        &self,
+        symbols: impl IntoIterator<Item = (GlobalSymbol, Value)>,
+    ) -> Result<(), RuntimeError> {
+        let mut table_mut = self.0.global_table.borrow_mut();
+        for (sym, value) in symbols {
+            match table_mut.entry(sym) {
+                hash_map::Entry::Occupied(_) => {
+                    return Err(RuntimeError::new_internal_error("Symbol already defined."))
+                }
+                hash_map::Entry::Vacant(vac) => {
+                    vac.insert(value);
+                }
+            }
+        }
+        Ok(())
     }
 }
 

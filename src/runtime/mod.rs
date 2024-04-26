@@ -15,21 +15,25 @@ pub(super) mod instructions;
 pub(super) mod stack_frame;
 pub(super) mod value;
 
+pub use builder::RuntimeBuilder;
+
 pub struct Runtime {
     global_context: GlobalContext,
     call_stack: Vec<StackFrame>,
 }
 
 impl Runtime {
-    pub fn new(inst: Rc<InstructionList>) -> Self {
-        let initial_frame = StackFrame::new(inst, Vec::new());
+    fn new_with_initial_stack_frame(
+        global_context: GlobalContext,
+        stack_frame: StackFrame,
+    ) -> Self {
         Runtime {
             global_context: GlobalContext::new(),
-            call_stack: vec![initial_frame],
+            call_stack: vec![stack_frame],
         }
     }
 
-    fn run(&mut self) -> Result<Vec<Value>> {
+    pub fn run(&mut self) -> Result<Vec<Value>> {
         loop {
             let frame = self.call_stack.last_mut().unwrap();
             match frame.run_to_frame_change()? {
