@@ -1,27 +1,34 @@
 use std::borrow::Cow;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Type Error: {message}")]
 pub struct TypeError {
     message: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Conversion Error: {message}")]
 pub struct ConversionError {
     message: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Operation precondition error: {message}")]
 pub struct OperationPreconditionError {
     message: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     /// An error where the wrong type is used in an operation.
-    Type(TypeError),
-    Conversion(ConversionError),
+    #[error(transparent)]
+    Type(#[from] TypeError),
+    #[error(transparent)]
+    Conversion(#[from] ConversionError),
     /// An error where an operation is attempted on an invalid state.
+    #[error(transparent)]
     OperationPrecondition(OperationPreconditionError),
+    #[error("Internal error: {0}")]
     InternalError(String),
 }
 
