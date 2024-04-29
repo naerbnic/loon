@@ -33,7 +33,7 @@ pub(crate) trait InstEval {
 
 pub type InstPtr = Rc<dyn InstEval>;
 
-pub struct InstEvalList(Vec<InstPtr>);
+pub(crate) struct InstEvalList(Vec<InstPtr>);
 
 impl InstEvalList {
     pub fn from_inst_list(inst_list: &InstructionList) -> Self {

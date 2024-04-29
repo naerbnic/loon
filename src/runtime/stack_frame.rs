@@ -1,8 +1,9 @@
 use std::{borrow::Cow, rc::Rc};
 
 use super::{
-    error::RuntimeError,
-    instructions::{CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult}, value::Value,
+    error::{Result, RuntimeError},
+    instructions::{CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult},
+    value::Value,
 };
 
 struct InstState {
@@ -23,7 +24,7 @@ impl InstState {
         self.pc
     }
 
-    pub fn update_pc(&mut self, pc: usize) -> Result<(), RuntimeError> {
+    pub fn update_pc(&mut self, pc: usize) -> Result<()> {
         if pc >= self.inst_list.len() {
             return Err(RuntimeError::new_operation_precondition_error(
                 "Instruction stepped out of bounds.",
@@ -57,7 +58,7 @@ impl LocalStack {
         self.stack.push(value);
     }
 
-    pub fn pop(&mut self) -> Result<Value, RuntimeError> {
+    pub fn pop(&mut self) -> Result<Value> {
         self.stack
             .pop()
             .ok_or_else(|| RuntimeError::new_operation_precondition_error("Local stack is empty."))
@@ -77,7 +78,7 @@ impl StackFrame {
         }
     }
 
-    pub fn read_args_from_stack(&mut self) -> Result<Vec<Value>, RuntimeError> {
+    pub fn read_args_from_stack(&mut self) -> Result<Vec<Value>> {
         let arg_count_value = self.local_stack.pop()?;
         let arg_count = arg_count_value.as_compact_integer()?;
         let mut args = Vec::new();
@@ -87,7 +88,7 @@ impl StackFrame {
         Ok(args)
     }
 
-    pub fn step(&mut self) -> Result<Option<FrameChange>, RuntimeError> {
+    pub fn step(&mut self) -> Result<Option<FrameChange>> {
         let inst = self.inst_state.curr_inst();
         let result = match inst.execute(&mut self.local_stack)? {
             InstructionResult::Next => {
@@ -110,7 +111,7 @@ impl StackFrame {
         Ok(result)
     }
 
-    pub fn run_to_frame_change(&mut self) -> Result<FrameChange, RuntimeError> {
+    pub fn run_to_frame_change(&mut self) -> Result<FrameChange> {
         loop {
             if let Some(result) = self.step()? {
                 return Ok(result);
@@ -118,7 +119,7 @@ impl StackFrame {
         }
     }
 
-    pub fn push_return_values(&mut self, args: Vec<Value>) -> Result<(), RuntimeError> {
+    pub fn push_return_values(&mut self, args: Vec<Value>) -> Result<()> {
         for arg in args.into_iter().rev() {
             self.local_stack.push(arg);
         }
