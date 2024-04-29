@@ -1,6 +1,12 @@
 use std::rc::Rc;
 
-use crate::pure_values::{Float, Integer};
+use crate::{
+    pure_values::{Float, Integer},
+    runtime::{
+        constants::{resolve_constants, ConstLoader, ResolveFunc},
+        value::{Function, List, Value},
+    },
+};
 
 use super::{instructions::InstructionList, symbols::GlobalSymbol};
 
@@ -80,4 +86,54 @@ pub enum ConstValue {
     String(String),
     List(Vec<ConstIndex>),
     Function(ConstFunction),
+}
+
+impl ConstLoader for ConstValue {
+    fn load<'a>(
+        &'a self,
+        const_resolver: &'a dyn crate::runtime::constants::ConstResolver,
+        ctxt: &'a crate::runtime::context::GlobalContext,
+    ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), crate::runtime::error::RuntimeError>
+    {
+        type ResolverFn<'a> = Box<
+            dyn FnOnce(
+                    &dyn crate::runtime::constants::ConstResolver,
+                ) -> Result<(), crate::runtime::error::RuntimeError>
+                + 'a,
+        >;
+        let (value, resolver) = match self {
+            ConstValue::ExternalRef(index) => (const_resolver.resolve(index)?, None),
+            ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
+            ConstValue::Float(f) => (Value::Float(f.clone()), None),
+            ConstValue::String(s) => (Value::String(Rc::new(s.clone())), None),
+            ConstValue::List(list) => {
+                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
+                let resolver: ResolverFn = Box::new(move |vs| {
+                    let mut list_elems = Vec::with_capacity(list.len());
+                    for index in list {
+                        list_elems.push(vs.resolve(index)?);
+                    }
+                    resolve_fn(List::from_iter(list_elems));
+                    Ok(())
+                });
+
+                (Value::List(deferred), Some(resolver))
+            }
+            ConstValue::Function(const_func) => {
+                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
+                let resolver: ResolverFn = Box::new(move |vs| {
+                    let resolved_func_consts =
+                        resolve_constants(ctxt, vs, const_func.const_table())?;
+                    resolve_fn(Function::new_managed(
+                        resolved_func_consts,
+                        Rc::new(ctxt.resolve_instructions(const_func.instructions())?),
+                    ));
+                    Ok(())
+                });
+                (Value::Function(deferred), Some(resolver))
+            }
+        };
+
+        Ok((value, resolver.unwrap_or(Box::new(|_| Ok(())))))
+    }
 }

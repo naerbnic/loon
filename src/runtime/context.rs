@@ -18,9 +18,10 @@ struct Inner {
 }
 
 #[derive(Clone)]
-pub(crate) struct GlobalContext(Rc<Inner>);
+pub struct GlobalContext(Rc<Inner>);
 
 impl GlobalContext {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         GlobalContext(Rc::new(Inner {
             gc_context: GcContext::new(),
@@ -41,7 +42,7 @@ impl GlobalContext {
 
     pub fn resolve_instructions(
         &self,
-        inst_list: &InstructionList,
+        _inst_list: &InstructionList,
     ) -> Result<InstEvalList, RuntimeError> {
         todo!()
     }

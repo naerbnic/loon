@@ -2,14 +2,19 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use std::rc::Rc;
-
-use crate::{
-    binary::const_table::{ConstIndex, ConstValue, LayerIndex},
-    runtime::value::{Function, List},
-};
+use crate::binary::const_table::{ConstIndex, ConstValue, LayerIndex};
 
 use super::{context::GlobalContext, error::RuntimeError, value::Value};
+
+pub type ResolveFunc<'a> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'a>;
+
+pub trait ConstLoader {
+    fn load<'a>(
+        &'a self,
+        const_resolver: &'a dyn crate::runtime::constants::ConstResolver,
+        ctxt: &'a GlobalContext,
+    ) -> Result<(Value, ResolveFunc<'a>), RuntimeError>;
+}
 
 pub trait ConstResolver {
     fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError>;
@@ -28,7 +33,7 @@ impl<'a> GlobalResolver<'a> {
 impl<'a> ConstResolver for GlobalResolver<'a> {
     fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError> {
         match index {
-            ConstIndex::Local(layer_index) => Err(RuntimeError::new_internal_error(
+            ConstIndex::Local(_layer_index) => Err(RuntimeError::new_internal_error(
                 "Local resolution not supported.",
             )),
             ConstIndex::Global(name) => {
@@ -74,62 +79,34 @@ impl<'a> ConstResolver for LocalResolver<'a> {
     }
 }
 
-fn resolve_constants_impl<'a>(
+pub fn resolve_constants<'a, T>(
     ctxt: &'a GlobalContext,
     const_resolver: &'a dyn ConstResolver,
-    values: &'a [ConstValue],
-) -> Result<Vec<Value>, RuntimeError> {
+    values: &'a [T],
+) -> Result<Vec<Value>, RuntimeError>
+where
+    T: ConstLoader,
+{
     type ResolverFn<'b> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'b>;
     let mut resolved_values = Vec::with_capacity(values.len());
-    let mut resolvers: Vec<Option<ResolverFn<'a>>> = Vec::with_capacity(values.len());
+    let mut resolvers: Vec<ResolverFn<'a>> = Vec::with_capacity(values.len());
 
     for value in values {
-        let (value, resolver) = match value {
-            ConstValue::ExternalRef(index) => (const_resolver.resolve(index)?, None),
-            ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
-            ConstValue::Float(f) => (Value::Float(f.clone()), None),
-            ConstValue::String(s) => (Value::String(Rc::new(s.clone())), None),
-            ConstValue::List(list) => {
-                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
-                let resolver: ResolverFn<'a> = Box::new(move |vs| {
-                    let mut list_elems = Vec::with_capacity(list.len());
-                    for index in list {
-                        list_elems.push(vs.resolve(&index)?);
-                    }
-                    resolve_fn(List::from_iter(list_elems));
-                    Ok(())
-                });
-
-                (Value::List(deferred), Some(resolver))
-            }
-            ConstValue::Function(const_func) => {
-                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
-                let resolver: ResolverFn<'a> = Box::new(move |vs| {
-                    let resolved_func_consts =
-                        resolve_constants_impl(ctxt, vs, const_func.const_table())?;
-                    resolve_fn(Function::new_managed(
-                        resolved_func_consts,
-                        Rc::new(ctxt.resolve_instructions(const_func.instructions())?),
-                    ));
-                    Ok(())
-                });
-                (Value::Function(deferred), Some(resolver))
-            }
-        };
+        let (value, resolver) = value.load(const_resolver, ctxt)?;
         resolved_values.push(value);
         resolvers.push(resolver);
     }
 
     let curr_layer = LocalResolver::new(const_resolver, &resolved_values);
 
-    for resolver in resolvers.into_iter().flatten() {
+    for resolver in resolvers.into_iter() {
         resolver(&curr_layer)?;
     }
 
     Ok(resolved_values)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConstTable(Vec<ConstValue>);
 
 impl ConstTable {
@@ -147,7 +124,7 @@ impl ConstTable {
     /// resolution completes.
     pub fn resolve(&self, ctxt: &GlobalContext) -> Result<ValueTable, RuntimeError> {
         let curr_layer = GlobalResolver::new(ctxt);
-        let values = resolve_constants_impl(ctxt, &curr_layer, &self.0)?;
+        let values = resolve_constants(ctxt, &curr_layer, &self.0)?;
         Ok(ValueTable(values))
     }
 }
@@ -172,7 +149,6 @@ mod tests {
     #[test]
     fn build_simple_values() {
         let ctxt = GlobalContext::new();
-        let const_resolver = &ctxt;
         let const_table = ConstTable::new(vec![
             ConstValue::Integer(Integer::Compact(42)),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
