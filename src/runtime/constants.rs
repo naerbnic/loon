@@ -4,20 +4,24 @@
 
 use crate::binary::const_table::{ConstIndex, ConstValue, LayerIndex};
 
-use super::{context::GlobalContext, error::RuntimeError, value::Value};
+use super::{
+    context::GlobalContext,
+    error::{Result, RuntimeError},
+    value::Value,
+};
 
-pub type ResolveFunc<'a> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'a>;
+pub type ResolveFunc<'a> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<()> + 'a>;
 
 pub trait ConstLoader {
     fn load<'a>(
         &'a self,
         const_resolver: &'a dyn crate::runtime::constants::ConstResolver,
         ctxt: &'a GlobalContext,
-    ) -> Result<(Value, ResolveFunc<'a>), RuntimeError>;
+    ) -> Result<(Value, ResolveFunc<'a>)>;
 }
 
 pub trait ConstResolver {
-    fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError>;
+    fn resolve(&self, index: &ConstIndex) -> Result<Value>;
 }
 
 pub struct GlobalResolver<'a> {
@@ -31,7 +35,7 @@ impl<'a> GlobalResolver<'a> {
 }
 
 impl<'a> ConstResolver for GlobalResolver<'a> {
-    fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError> {
+    fn resolve(&self, index: &ConstIndex) -> Result<Value> {
         match index {
             ConstIndex::Local(_layer_index) => Err(RuntimeError::new_internal_error(
                 "Local resolution not supported.",
@@ -59,7 +63,7 @@ impl<'a> LocalResolver<'a> {
 }
 
 impl<'a> ConstResolver for LocalResolver<'a> {
-    fn resolve(&self, index: &ConstIndex) -> Result<Value, RuntimeError> {
+    fn resolve(&self, index: &ConstIndex) -> Result<Value> {
         match index {
             ConstIndex::Local(layer_index) => {
                 if layer_index.layer() > 0 {
@@ -83,11 +87,11 @@ pub fn resolve_constants<'a, T>(
     ctxt: &'a GlobalContext,
     const_resolver: &'a dyn ConstResolver,
     values: &'a [T],
-) -> Result<Vec<Value>, RuntimeError>
+) -> Result<Vec<Value>>
 where
     T: ConstLoader,
 {
-    type ResolverFn<'b> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'b>;
+    type ResolverFn<'b> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<()> + 'b>;
     let mut resolved_values = Vec::with_capacity(values.len());
     let mut resolvers: Vec<ResolverFn<'a>> = Vec::with_capacity(values.len());
 
@@ -122,7 +126,7 @@ impl ConstTable {
     /// We allow for self-referential constants and recursive constants via creating
     /// deferred references which will be resolved by the time that constant
     /// resolution completes.
-    pub fn resolve(&self, ctxt: &GlobalContext) -> Result<ValueTable, RuntimeError> {
+    pub fn resolve(&self, ctxt: &GlobalContext) -> Result<ValueTable> {
         let curr_layer = GlobalResolver::new(ctxt);
         let values = resolve_constants(ctxt, &curr_layer, &self.0)?;
         Ok(ValueTable(values))
@@ -133,7 +137,7 @@ impl ConstTable {
 pub struct ValueTable(Vec<Value>);
 
 impl ValueTable {
-    pub fn at(&self, index: usize) -> Result<&Value, RuntimeError> {
+    pub fn at(&self, index: usize) -> Result<&Value> {
         self.0
             .get(index)
             .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))
