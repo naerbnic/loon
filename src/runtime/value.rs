@@ -26,9 +26,8 @@ pub enum Value {
 impl Value {
     pub fn as_compact_integer(&self) -> Result<i64, RuntimeError> {
         match self {
-            Value::Integer(Integer::Compact(i)) => Ok(*i),
-            Value::Integer(Integer::Big(i)) => i
-                .to_i64()
+            Value::Integer(i) => i
+                .to_compact_integer()
                 .ok_or_else(|| RuntimeError::new_conversion_error("Integer value is too large.")),
             _ => Err(RuntimeError::new_type_error("Value is not an integer.")),
         }
@@ -46,10 +45,12 @@ impl Value {
     pub fn ref_eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Value::Integer(i1), Value::Integer(i2)) => i1 == i2,
-            (Value::Float(f1), Value::Float(f2)) => f1 as *const _ == f2 as *const _,
-            (Value::String(s1), Value::String(s2)) => s1 as *const _ == s2 as *const _,
-            (Value::List(l1), Value::List(l2)) => l1 as *const _ == l2 as *const _,
-            (Value::Function(f1), Value::Function(f2)) => f1 as *const _ == f2 as *const _,
+            (Value::Float(f1), Value::Float(f2)) => f1 == f2,
+            (Value::String(s1), Value::String(s2)) => s1 == s2,
+            (Value::List(l1), Value::List(l2)) => std::ptr::eq(l1 as *const _, l2 as *const _),
+            (Value::Function(f1), Value::Function(f2)) => {
+                std::ptr::eq(f1 as *const _, f2 as *const _)
+            }
             _ => false,
         }
     }

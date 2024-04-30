@@ -154,7 +154,7 @@ mod tests {
     fn build_simple_values() {
         let ctxt = GlobalContext::new();
         let const_table = ConstTable::new(vec![
-            ConstValue::Integer(Integer::Compact(42)),
+            ConstValue::Integer(42.into()),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
             ConstValue::String("hello".to_string()),
         ]);
@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(resolved_values.0.len(), 3);
 
         match resolved_values.at(0).unwrap() {
-            Value::Integer(Integer::Compact(i)) => assert_eq!(*i, 42),
+            Value::Integer(i) => assert_eq!(*i, 42.into()),
             _ => panic!("Expected integer value."),
         }
 
@@ -182,7 +182,7 @@ mod tests {
     fn build_composite_value() {
         let ctxt = GlobalContext::new();
         let values = ConstTable::new(vec![
-            ConstValue::Integer(Integer::Compact(42)),
+            ConstValue::Integer(42.into()),
             ConstValue::List(vec![
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
@@ -199,7 +199,7 @@ mod tests {
                     assert_eq!(l.len(), 3);
                     for elem in l.iter() {
                         match elem {
-                            Value::Integer(Integer::Compact(i)) => assert_eq!(*i, 42),
+                            Value::Integer(i) => assert_eq!(*i, 42.into()),
                             _ => panic!("Expected integer value."),
                         }
                     }
