@@ -146,7 +146,7 @@ impl ValueTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::pure_values::{Float, Integer};
+    use crate::pure_values::Float;
 
     use super::*;
 
@@ -156,7 +156,7 @@ mod tests {
         let const_table = ConstTable::new(vec![
             ConstValue::Integer(42.into()),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
-            ConstValue::String("hello".to_string()),
+            ConstValue::String("hello".into()),
         ]);
 
         let resolved_values = const_table.resolve(&ctxt).unwrap();

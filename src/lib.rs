@@ -2,6 +2,7 @@ mod refs;
 pub mod runtime;
 pub mod binary;
 pub mod pure_values;
+mod util;
 
 #[cfg(test)]
 mod tests {

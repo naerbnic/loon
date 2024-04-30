@@ -1,12 +1,10 @@
-use std::rc::Rc;
-
 use crate::{
     pure_values::{Float, Integer},
     refs::{GcRef, GcRefVisitor, GcTraceable},
+    util::imm_string::ImmString,
 };
 
 use super::error::RuntimeError;
-use num_traits::ToPrimitive;
 
 mod function;
 mod list;
@@ -18,7 +16,7 @@ pub use list::List;
 pub enum Value {
     Integer(Integer),
     Float(Float),
-    String(Rc<String>),
+    String(ImmString),
     List(GcRef<List>),
     Function(GcRef<Function>),
 }

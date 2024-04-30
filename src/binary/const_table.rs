@@ -6,6 +6,7 @@ use crate::{
         constants::{resolve_constants, ConstLoader, ResolveFunc},
         value::{Function, List, Value},
     },
+    util::imm_string::ImmString,
 };
 
 use super::{instructions::InstructionList, symbols::GlobalSymbol};
@@ -83,7 +84,7 @@ pub enum ConstValue {
     ExternalRef(ConstIndex),
     Integer(Integer),
     Float(Float),
-    String(String),
+    String(ImmString),
     List(Vec<ConstIndex>),
     Function(ConstFunction),
 }
@@ -105,7 +106,7 @@ impl ConstLoader for ConstValue {
             ConstValue::ExternalRef(index) => (const_resolver.resolve(index)?, None),
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
-            ConstValue::String(s) => (Value::String(Rc::new(s.clone())), None),
+            ConstValue::String(s) => (Value::String(s.clone()), None),
             ConstValue::List(list) => {
                 let (deferred, resolve_fn) = ctxt.create_deferred_ref();
                 let resolver: ResolverFn = Box::new(move |vs| {
