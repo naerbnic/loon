@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashSet, rc::Rc};
 
 use crate::{
     pure_values::{Float, Integer},
@@ -152,51 +152,40 @@ pub enum ConstValidationError {
     LocalIndexResolutionError,
 }
 
-pub trait ConstTableEnv {
-    fn validate_ref(&self, index: &ConstIndex) -> Result<(), ConstValidationError>;
-}
-
-fn validate_const_table(
-    env: &dyn ConstTableEnv,
+/// Check that the constant values are valid, and return the set of constraints
+/// the table has to meet.
+fn collect_constraints(
     table_elements: &[ConstValue],
-) -> Result<(), ConstValidationError> {
-    struct LayerEnv<'a> {
-        parent: &'a dyn ConstTableEnv,
-        layer_size: usize,
-    }
-
-    impl ConstTableEnv for LayerEnv<'_> {
-        fn validate_ref(&self, index: &ConstIndex) -> Result<(), ConstValidationError> {
-            match index {
-                ConstIndex::Local(layer_index) => {
-                    if let Some(prev_layer_index) = layer_index.in_prev_layer() {
-                        self.parent
-                            .validate_ref(&ConstIndex::Local(prev_layer_index))
-                    } else if layer_index.index() < self.layer_size {
-                        Ok(())
-                    } else {
-                        Err(ConstValidationError::LocalIndexResolutionError)
-                    }
+) -> Result<ConstConstraints, ConstValidationError> {
+    fn add_local_constraint(
+        constraints: &mut ConstConstraints,
+        curr_layer_size: usize,
+        layer_index: &ConstIndex,
+    ) -> Result<(), ConstValidationError> {
+        match layer_index {
+            ConstIndex::Local(layer_index) => {
+                if let Some(prev_layer) = layer_index.in_prev_layer() {
+                    constraints.absorb_constraint(&ConstIndex::Local(prev_layer));
+                } else if curr_layer_size <= layer_index.index() {
+                    return Err(ConstValidationError::LocalIndexResolutionError);
                 }
-                ConstIndex::Global(_) => self.parent.validate_ref(index),
+            }
+            ConstIndex::Global(global) => {
+                constraints.absorb_constraint(&ConstIndex::Global(global.clone()));
             }
         }
+        Ok(())
     }
 
-    let local_value_env = LayerEnv {
-        parent: env,
-        layer_size: table_elements.len(),
-    };
-
+    let mut constraints = ConstConstraints::new();
     for value in table_elements {
         match value {
             ConstValue::ExternalRef(index) => {
-                // External refs are validated by the parent environment.
-                env.validate_ref(index)?
+                constraints.absorb_constraint(index);
             }
             ConstValue::List(list) => {
                 for index in list {
-                    local_value_env.validate_ref(index)?;
+                    add_local_constraint(&mut constraints, table_elements.len(), index)?;
                 }
             }
             ConstValue::Function(_) => {
@@ -207,33 +196,74 @@ fn validate_const_table(
             _ => {}
         }
     }
-    Ok(())
+    Ok(constraints)
+}
+
+#[derive(Debug)]
+pub struct ConstConstraints {
+    /// This contains constraints for the dependencies of the const table.
+    /// There is one entry in the vec is one layer below the const table itself.
+    /// The value of the entry is the minimum length of the list of constants
+    /// that the const table depends on.
+    layer_index_constraints: Vec<u32>,
+    global_constraints: HashSet<GlobalSymbol>,
+}
+
+impl ConstConstraints {
+    pub fn new() -> Self {
+        ConstConstraints {
+            layer_index_constraints: Vec::new(),
+            global_constraints: HashSet::new(),
+        }
+    }
+
+    pub fn absorb_constraint(&mut self, index: &ConstIndex) {
+        match index {
+            ConstIndex::Local(layer_index) => {
+                if layer_index.layer() >= self.layer_index_constraints.len() {
+                    self.layer_index_constraints
+                        .resize(layer_index.layer() + 1, 0);
+                }
+                let layer_constraint = &mut self.layer_index_constraints[layer_index.layer()];
+                *layer_constraint = (*layer_constraint).max(layer_index.index() as u32);
+            }
+            ConstIndex::Global(symbol) => {
+                self.global_constraints.insert(symbol.clone());
+            }
+        }
+    }
+
+    pub fn needs_parent_layers(&self) -> bool {
+        !self.layer_index_constraints.is_empty()
+    }
+}
+
+impl Default for ConstConstraints {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstTable(Rc<Vec<ConstValue>>);
+pub struct ConstTable {
+    entries: Rc<Vec<ConstValue>>,
+    constraints: Rc<ConstConstraints>,
+}
 
 impl ConstTable {
     pub fn new(values: Vec<ConstValue>) -> Result<Self, ConstValidationError> {
-        struct NullEnv;
-
-        impl ConstTableEnv for NullEnv {
-            fn validate_ref(&self, _: &ConstIndex) -> Result<(), ConstValidationError> {
-                Err(ConstValidationError::LocalIndexResolutionError)
-            }
-        }
-        ConstTable::new_with_env(&NullEnv, values)
-    }
-
-    pub fn new_with_env(
-        env: &dyn ConstTableEnv,
-        values: Vec<ConstValue>,
-    ) -> Result<Self, ConstValidationError> {
-        validate_const_table(env, &values)?;
-        Ok(ConstTable(Rc::new(values)))
+        let constraints = collect_constraints(&values)?;
+        Ok(ConstTable {
+            constraints: Rc::new(constraints),
+            entries: Rc::new(values),
+        })
     }
 
     pub fn values(&self) -> &[ConstValue] {
-        &self.0
+        &self.entries
+    }
+
+    pub fn constraints(&self) -> &ConstConstraints {
+        &self.constraints
     }
 }

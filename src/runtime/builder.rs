@@ -41,7 +41,7 @@ impl RuntimeBuilder {
         self.global_context.insert_symbols(new_symbols?)
     }
 
-    pub fn build_with_main(self, main_symbol: impl Into<String>) -> Result<Runtime, RuntimeError> {
+    pub fn build_with_main(self, main_symbol: &str) -> Result<Runtime, RuntimeError> {
         let main_function = self
             .global_context
             .lookup_symbol(&GlobalSymbol::new(main_symbol))

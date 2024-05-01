@@ -1,7 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    binary::const_table::{ConstTableEnv, ConstValidationError},
     pure_values::{Float, Integer},
     util::imm_string::ImmString,
 };
@@ -39,35 +38,6 @@ impl InnerRc {
                 result.push(value.clone());
             } else {
                 panic!("Deferred value not resolved.");
-            }
-        }
-
-        struct BuilderEnv<'a> {
-            curr_env: &'a InnerRc,
-        }
-
-        impl ConstTableEnv for BuilderEnv<'_> {
-            fn validate_ref(&self, index: &ConstIndex) -> Result<(), ConstValidationError> {
-                let mut curr_layer = self.curr_env.clone();
-                match index {
-                    ConstIndex::Local(layer_index) => {
-                        while layer_index.layer() > 0 {
-                            curr_layer = self
-                                .curr_env
-                                .0
-                                .borrow()
-                                .parent
-                                .as_ref()
-                                .ok_or(ConstValidationError::LocalIndexResolutionError)?
-                                .clone();
-                        }
-                        if curr_layer.0.borrow().values.len() <= layer_index.index() {
-                            return Err(ConstValidationError::LocalIndexResolutionError);
-                        }
-                        Ok(())
-                    }
-                    ConstIndex::Global(_) => todo!("Global index"),
-                }
             }
         }
         ConstTable::new(result).expect("Failed to create const table.")
@@ -150,7 +120,7 @@ impl DeferredValue {
     fn find_ref(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
         let mut curr_layer = 0;
         let mut curr_set = self.0.value_set.clone();
-        while curr_set.ptr_eq(&value_ref.value_set) {
+        while !curr_set.ptr_eq(&value_ref.value_set) {
             let next_set = {
                 let inner = curr_set.0.borrow();
                 curr_layer += 1;
@@ -247,11 +217,13 @@ mod tests {
         value_set.into_const_table();
     }
 
+    #[test]
     fn test_build_compound_value() {
         let value_set = ValueSet::new_root();
         let i1 = value_set.new_int(42);
         let i2 = value_set.new_int(1138);
         let list = value_set.new_list(vec![i1.clone(), i2.clone()]);
-        value_set.into_const_table();
+        let const_table = value_set.into_const_table();
+        assert!(!const_table.constraints().needs_parent_layers());
     }
 }
