@@ -19,10 +19,6 @@ impl ImmBytes {
         Self(raw)
     }
 
-    pub fn len(&self) -> usize {
-        self.0.header().len
-    }
-
     pub fn as_bytes(&self) -> &[u8] {
         self.0.data()
     }
@@ -76,7 +72,7 @@ impl Eq for ImmBytes {}
 
 impl PartialOrd for ImmBytes {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.as_bytes().partial_cmp(other.as_bytes())
+        Some(self.cmp(other))
     }
 }
 

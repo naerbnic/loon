@@ -3,7 +3,9 @@ use std::rc::Rc;
 use crate::{
     pure_values::{Float, Integer},
     runtime::{
-        constants::{resolve_constants, ConstLoader, ResolveFunc},
+        constants::{resolve_constants, ConstLoader, ConstResolver, ResolveFunc},
+        context::GlobalContext,
+        error::RuntimeError,
         value::{Function, List, Value},
     },
     util::imm_string::ImmString,
@@ -40,6 +42,17 @@ impl LayerIndex {
     pub fn index(&self) -> usize {
         self.index
     }
+
+    pub fn in_prev_layer(&self) -> Option<Self> {
+        if self.layer > 0 {
+            Some(LayerIndex {
+                layer: self.layer - 1,
+                index: self.index,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -54,19 +67,19 @@ pub enum ConstIndex {
 #[derive(Clone, Debug)]
 pub struct ConstFunction {
     /// Definitions of constants local to the function.
-    const_table: Vec<ConstValue>,
-    instructions: Rc<InstructionList>,
+    const_table: ConstTable,
+    instructions: InstructionList,
 }
 
 impl ConstFunction {
-    pub fn new(const_table: Vec<ConstValue>, instructions: Rc<InstructionList>) -> Self {
+    pub fn new(const_table: ConstTable, instructions: InstructionList) -> Self {
         ConstFunction {
             const_table,
             instructions,
         }
     }
 
-    pub fn const_table(&self) -> &[ConstValue] {
+    pub fn const_table(&self) -> &ConstTable {
         &self.const_table
     }
 
@@ -92,16 +105,10 @@ pub enum ConstValue {
 impl ConstLoader for ConstValue {
     fn load<'a>(
         &'a self,
-        const_resolver: &'a dyn crate::runtime::constants::ConstResolver,
-        ctxt: &'a crate::runtime::context::GlobalContext,
-    ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), crate::runtime::error::RuntimeError>
-    {
-        type ResolverFn<'a> = Box<
-            dyn FnOnce(
-                    &dyn crate::runtime::constants::ConstResolver,
-                ) -> Result<(), crate::runtime::error::RuntimeError>
-                + 'a,
-        >;
+        const_resolver: &'a dyn ConstResolver,
+        ctxt: &'a GlobalContext,
+    ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
+        type ResolverFn<'a> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'a>;
         let (value, resolver) = match self {
             ConstValue::ExternalRef(index) => (const_resolver.resolve(index)?, None),
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
@@ -124,7 +131,7 @@ impl ConstLoader for ConstValue {
                 let (deferred, resolve_fn) = ctxt.create_deferred_ref();
                 let resolver: ResolverFn = Box::new(move |vs| {
                     let resolved_func_consts =
-                        resolve_constants(ctxt, vs, const_func.const_table())?;
+                        resolve_constants(ctxt, vs, const_func.const_table().values())?;
                     resolve_fn(Function::new_managed(
                         resolved_func_consts,
                         Rc::new(ctxt.resolve_instructions(const_func.instructions())?),
@@ -136,5 +143,97 @@ impl ConstLoader for ConstValue {
         };
 
         Ok((value, resolver.unwrap_or(Box::new(|_| Ok(())))))
+    }
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum ConstValidationError {
+    #[error("Found an invalid constant index")]
+    LocalIndexResolutionError,
+}
+
+pub trait ConstTableEnv {
+    fn validate_ref(&self, index: &ConstIndex) -> Result<(), ConstValidationError>;
+}
+
+fn validate_const_table(
+    env: &dyn ConstTableEnv,
+    table_elements: &[ConstValue],
+) -> Result<(), ConstValidationError> {
+    struct LayerEnv<'a> {
+        parent: &'a dyn ConstTableEnv,
+        layer_size: usize,
+    }
+
+    impl ConstTableEnv for LayerEnv<'_> {
+        fn validate_ref(&self, index: &ConstIndex) -> Result<(), ConstValidationError> {
+            match index {
+                ConstIndex::Local(layer_index) => {
+                    if let Some(prev_layer_index) = layer_index.in_prev_layer() {
+                        self.parent
+                            .validate_ref(&ConstIndex::Local(prev_layer_index))
+                    } else if layer_index.index() < self.layer_size {
+                        Ok(())
+                    } else {
+                        Err(ConstValidationError::LocalIndexResolutionError)
+                    }
+                }
+                ConstIndex::Global(_) => self.parent.validate_ref(index),
+            }
+        }
+    }
+
+    let local_value_env = LayerEnv {
+        parent: env,
+        layer_size: table_elements.len(),
+    };
+
+    for value in table_elements {
+        match value {
+            ConstValue::ExternalRef(index) => {
+                // External refs are validated by the parent environment.
+                env.validate_ref(index)?
+            }
+            ConstValue::List(list) => {
+                for index in list {
+                    local_value_env.validate_ref(index)?;
+                }
+            }
+            ConstValue::Function(_) => {
+                // FIXME: Const tables should preserve the enviroment they
+                // expect, to allow for validation outside of the context of
+                // building the const table.
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct ConstTable(Rc<Vec<ConstValue>>);
+
+impl ConstTable {
+    pub fn new(values: Vec<ConstValue>) -> Result<Self, ConstValidationError> {
+        struct NullEnv;
+
+        impl ConstTableEnv for NullEnv {
+            fn validate_ref(&self, _: &ConstIndex) -> Result<(), ConstValidationError> {
+                Err(ConstValidationError::LocalIndexResolutionError)
+            }
+        }
+        ConstTable::new_with_env(&NullEnv, values)
+    }
+
+    pub fn new_with_env(
+        env: &dyn ConstTableEnv,
+        values: Vec<ConstValue>,
+    ) -> Result<Self, ConstValidationError> {
+        validate_const_table(env, &values)?;
+        Ok(ConstTable(Rc::new(values)))
+    }
+
+    pub fn values(&self) -> &[ConstValue] {
+        &self.0
     }
 }

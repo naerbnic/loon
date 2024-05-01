@@ -106,7 +106,7 @@ pub enum Instruction {
 }
 
 #[derive(Clone, Debug)]
-pub struct InstructionList(Vec<Instruction>);
+pub struct InstructionList(Rc<Vec<Instruction>>);
 
 pub struct InstructionListBuilder {
     interned_opcodes: InternSet<ImmString>,
@@ -115,7 +115,7 @@ pub struct InstructionListBuilder {
 
 macro_rules! inst_builder {
     ($name:ident, $opcode:ident $(($($arg_name:ident : $arg_type:ty)*))?) => {
-        pub fn $name(&mut self, $($($arg_name: $arg_type),*)*) -> &mut Self {
+        pub fn $name(mut self, $($($arg_name: $arg_type),*)*) -> Self {
             self.instructions.push(Instruction::$opcode$(($($arg_name),*))*);
             self
         }
@@ -146,12 +146,35 @@ impl InstructionListBuilder {
     inst_builder!(return_dynamic, ReturnDynamic);
 
     pub fn build(self) -> InstructionList {
-        InstructionList(self.instructions)
+        InstructionList(Rc::new(self.instructions))
     }
 }
 
 impl Default for InstructionListBuilder {
     fn default() -> Self {
         InstructionListBuilder::new()
+    }
+}
+
+/// A module containing test helpers.
+#[cfg(test)]
+pub mod testing {}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::*;
+    use super::*;
+
+    #[test]
+    fn test_push_basic_instructions() {
+        let _inst_list = InstructionListBuilder::new()
+            // Pop arg count from stack.
+            .pop(1)
+            // Push the constant 0 and 1 onto the stack.
+            .push_const(0)
+            .push_const(1)
+            .add()
+            .return_(1)
+            .build();
     }
 }
