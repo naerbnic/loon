@@ -165,7 +165,7 @@ fn make_data_layout(len: usize) -> (Layout, usize) {
 
     debug_assert!(offset == HEADER_LAYOUT.size());
     debug_assert!(layout.size() > 0);
-    (layout, offset)
+    (layout.pad_to_align(), offset)
 }
 
 impl RawData {
