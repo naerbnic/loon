@@ -14,15 +14,16 @@ where
         }
     }
 
-    pub fn intern<V>(&mut self, value: V) -> T
+    pub fn intern<V>(&mut self, value: &V) -> T
     where
         T: Borrow<V>,
-        V: Into<T> + Hash + Eq,
+        V: Hash + Eq + ?Sized,
+        for<'a> &'a V: Into<T>,
     {
         if let Some(interned) = self.map.get(&value) {
             interned.clone()
         } else {
-            let value = value.into();
+            let value: T = value.into();
             self.map.insert(value.clone());
             value
         }

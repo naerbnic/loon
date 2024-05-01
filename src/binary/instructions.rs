@@ -1,8 +1,4 @@
-use std::{
-    borrow::{Borrow, Cow},
-    collections::HashSet,
-    rc::Rc,
-};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::util::{imm_string::ImmString, intern::InternSet};
 
@@ -109,14 +105,16 @@ pub enum Instruction {
 pub struct InstructionList(Rc<Vec<Instruction>>);
 
 pub struct InstructionListBuilder {
-    interned_opcodes: InternSet<ImmString>,
-    instructions: Vec<Instruction>,
+    branch_target_names: InternSet<ImmString>,
+    branch_targets: HashMap<ImmString, BranchTarget>,
+    branch_resolutions: Vec<(u32, ImmString)>,
+    instructions: Vec<Option<Instruction>>,
 }
 
 macro_rules! inst_builder {
     ($name:ident, $opcode:ident $(($($arg_name:ident : $arg_type:ty)*))?) => {
-        pub fn $name(mut self, $($($arg_name: $arg_type),*)*) -> Self {
-            self.instructions.push(Instruction::$opcode$(($($arg_name),*))*);
+        pub fn $name(&mut self, $($($arg_name: $arg_type),*)*) -> &mut Self {
+            self.instructions.push(Some(Instruction::$opcode$(($($arg_name),*))*));
             self
         }
     };
@@ -125,7 +123,9 @@ macro_rules! inst_builder {
 impl InstructionListBuilder {
     pub fn new() -> Self {
         InstructionListBuilder {
-            interned_opcodes: InternSet::new(),
+            branch_target_names: InternSet::new(),
+            branch_targets: HashMap::new(),
+            branch_resolutions: Vec::new(),
             instructions: Vec::new(),
         }
     }
@@ -139,14 +139,37 @@ impl InstructionListBuilder {
     inst_builder!(bool_xor, BoolXor);
     inst_builder!(bool_not, BoolNot);
     inst_builder!(compare, Compare(op: CompareOp));
-    inst_builder!(branch_if, BranchIf(target: BranchTarget));
     inst_builder!(call, Call(call: CallInstruction));
     inst_builder!(call_dynamic, CallDynamic);
     inst_builder!(return_, Return(n: u32));
     inst_builder!(return_dynamic, ReturnDynamic);
 
-    pub fn build(self) -> InstructionList {
-        InstructionList(Rc::new(self.instructions))
+    pub fn branch_if(&mut self, target: &str) -> &mut Self {
+        let target = self.branch_target_names.intern(target);
+        self.branch_resolutions
+            .push((self.instructions.len() as u32, target));
+        self.instructions.push(None);
+        self
+    }
+
+    pub fn define_branch_target(&mut self, target: &str) -> &mut Self {
+        let target = self.branch_target_names.intern(target);
+        let curr_branch_target = BranchTarget(self.instructions.len() as u32);
+        let result = self.branch_targets.insert(target, curr_branch_target);
+        assert!(result.is_none());
+        self
+    }
+
+    pub fn build(mut self) -> InstructionList {
+        // Resolve branch targets.
+        for (index, target) in self.branch_resolutions {
+            let target = self.branch_targets.get(&target).unwrap();
+            let prev = self.instructions[index as usize].replace(Instruction::BranchIf(*target));
+            assert!(prev.is_none())
+        }
+        let result: Result<Vec<Instruction>, ()> =
+            self.instructions.into_iter().map(|i| i.ok_or(())).collect();
+        InstructionList(Rc::new(result.unwrap()))
     }
 }
 
@@ -162,19 +185,30 @@ pub mod testing {}
 
 #[cfg(test)]
 mod tests {
-    use super::testing::*;
     use super::*;
 
     #[test]
     fn test_push_basic_instructions() {
-        let _inst_list = InstructionListBuilder::new()
-            // Pop arg count from stack.
+        let mut builder = InstructionListBuilder::new();
+        // Pop arg count from stack.
+        builder
             .pop(1)
             // Push the constant 0 and 1 onto the stack.
             .push_const(0)
             .push_const(1)
             .add()
-            .return_(1)
-            .build();
+            .return_(1);
+
+        builder.build();
+    }
+
+    #[test]
+    fn test_branch() {
+        let mut builder = InstructionListBuilder::new();
+        builder
+            .define_branch_target("loop_start")
+            .push_const(0)
+            .branch_if("loop_start");
+        builder.build();
     }
 }
