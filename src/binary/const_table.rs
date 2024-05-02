@@ -68,7 +68,7 @@ impl ConstIndex {
     pub fn in_prev_layer(&self) -> Option<Self> {
         match self {
             ConstIndex::Local(layer_index) => layer_index.in_prev_layer().map(ConstIndex::Local),
-            ConstIndex::ModuleImport(g) => Some(ConstIndex::ModuleImport(g.clone())),
+            ConstIndex::ModuleImport(g) => Some(ConstIndex::ModuleImport(*g)),
         }
     }
 }
@@ -183,7 +183,7 @@ fn collect_constraints(
                 }
             }
             ConstIndex::ModuleImport(global) => {
-                constraints.absorb_constraint(&ConstIndex::ModuleImport(global.clone()));
+                constraints.absorb_constraint(&ConstIndex::ModuleImport(*global));
             }
         }
         Ok(())
