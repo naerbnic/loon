@@ -88,7 +88,16 @@ impl ConstResolutionContext {
     pub fn new(global_context: GlobalContext) -> Self {
         ConstResolutionContext {
             global_context,
-            import_environment: ModuleImportEnvironment::new(),
+            import_environment: ModuleImportEnvironment::new(vec![]),
+        }
+    }
+    pub fn new_with_imports(
+        global_context: GlobalContext,
+        import_environment: ModuleImportEnvironment,
+    ) -> Self {
+        ConstResolutionContext {
+            global_context,
+            import_environment,
         }
     }
 

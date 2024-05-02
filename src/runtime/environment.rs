@@ -14,11 +14,12 @@ struct ModuleEnvironmentInner {
 pub struct ModuleImportEnvironment(Rc<ModuleEnvironmentInner>);
 
 impl ModuleImportEnvironment {
-    pub fn new() -> Self {
+    pub fn new(values: Vec<Value>) -> Self {
         ModuleImportEnvironment(Rc::new(ModuleEnvironmentInner {
             imports: Vec::new(),
         }))
     }
+
     pub fn get_import(&self, index: u32) -> Result<Value> {
         self.0
             .imports

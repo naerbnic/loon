@@ -43,7 +43,7 @@ pub struct ConstModule {
     imports: Vec<ImportSource>,
 
     /// Exports from this module. Values are indexes into the const table.
-    exports: HashMap<ImmString, u32>,
+    exports: HashMap<ModuleMemberId, u32>,
 
     /// The initializer for this module, if it has one.
     ///
@@ -54,4 +54,22 @@ pub struct ConstModule {
     /// empty, and will cause an error if read in this state. The initializer
     /// will be responsible for setting the globals to their initial values.
     global_table_size: u32,
+}
+
+impl ConstModule {
+    pub fn const_table(&self) -> &ConstTable {
+        &self.const_table
+    }
+    pub fn imports(&self) -> &[ImportSource] {
+        &self.imports
+    }
+    pub fn exports(&self) -> &HashMap<ModuleMemberId, u32> {
+        &self.exports
+    }
+    pub fn global_table_size(&self) -> u32 {
+        self.global_table_size
+    }
+    pub fn initializer(&self) -> Option<u32> {
+        self.initializer
+    }
 }
