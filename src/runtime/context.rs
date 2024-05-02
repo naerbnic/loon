@@ -1,24 +1,26 @@
 //! Global contexts for the current state of a runtime environment.
 
-use std::{
-    cell::RefCell,
-    collections::{hash_map, HashMap},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use super::{
+    environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
     instructions::InstEvalList,
+    modules::Module,
     value::Value,
 };
 use crate::{
-    binary::{instructions::InstructionList, symbols::GlobalSymbol},
+    binary::{
+        self,
+        instructions::InstructionList,
+        modules::{ImportSource, ModuleId},
+    },
     refs::{GcContext, GcRef, GcTraceable},
 };
 
 struct Inner {
     gc_context: GcContext,
-    global_table: RefCell<HashMap<GlobalSymbol, Value>>,
+    loaded_modules: RefCell<HashMap<ModuleId, Module>>,
 }
 
 #[derive(Clone)]
@@ -29,7 +31,7 @@ impl GlobalContext {
     pub fn new() -> Self {
         GlobalContext(Rc::new(Inner {
             gc_context: GcContext::new(),
-            global_table: RefCell::new(HashMap::new()),
+            loaded_modules: RefCell::new(HashMap::new()),
         }))
     }
 
@@ -40,30 +42,30 @@ impl GlobalContext {
         self.0.gc_context.create_ref(value)
     }
 
-    pub fn lookup_symbol(&self, symbol: &GlobalSymbol) -> Option<Value> {
-        self.0.global_table.borrow().get(symbol).cloned()
+    /// Loads a module into this global context.
+    ///
+    /// This does not initialize the module state, and has to be done at a
+    /// later pass.
+    pub fn load_module(
+        &self,
+        module_id: ModuleId,
+        module: &binary::modules::ConstModule,
+    ) -> Result<()> {
+        let module = Module::from_binary(self, module)?;
+        self.0.loaded_modules.borrow_mut().insert(module_id, module);
+        Ok(())
+    }
+
+    pub fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
+        let loaded_modules = self.0.loaded_modules.borrow();
+        loaded_modules
+            .get(import_source.module_id())
+            .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
+            .get_export(import_source.import_name())
     }
 
     pub fn resolve_instructions(&self, _inst_list: &InstructionList) -> Result<InstEvalList> {
         todo!()
-    }
-
-    pub fn insert_symbols(
-        &self,
-        symbols: impl IntoIterator<Item = (GlobalSymbol, Value)>,
-    ) -> Result<()> {
-        let mut table_mut = self.0.global_table.borrow_mut();
-        for (sym, value) in symbols {
-            match table_mut.entry(sym) {
-                hash_map::Entry::Occupied(_) => {
-                    return Err(RuntimeError::new_internal_error("Symbol already defined."))
-                }
-                hash_map::Entry::Vacant(vac) => {
-                    vac.insert(value);
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -74,5 +76,27 @@ impl GlobalContext {
         T: GcTraceable + 'static,
     {
         self.0.gc_context.create_deferred_ref()
+    }
+}
+
+pub struct ConstResolutionContext {
+    global_context: GlobalContext,
+    import_environment: ModuleImportEnvironment,
+}
+
+impl ConstResolutionContext {
+    pub fn new(global_context: GlobalContext) -> Self {
+        ConstResolutionContext {
+            global_context,
+            import_environment: ModuleImportEnvironment::new(),
+        }
+    }
+
+    pub fn global_context(&self) -> &GlobalContext {
+        &self.global_context
+    }
+
+    pub fn import_environment(&self) -> &ModuleImportEnvironment {
+        &self.import_environment
     }
 }

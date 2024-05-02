@@ -2,10 +2,10 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use crate::binary::const_table::{ConstIndex, ConstValue, LayerIndex};
+use crate::binary::const_table::{ConstIndex, ConstTable, ConstValue, LayerIndex};
 
 use super::{
-    context::GlobalContext,
+    context::ConstResolutionContext,
     error::{Result, RuntimeError},
     value::Value,
 };
@@ -16,7 +16,7 @@ pub trait ConstLoader {
     fn load<'a>(
         &'a self,
         const_resolver: &'a dyn crate::runtime::constants::ConstResolver,
-        ctxt: &'a GlobalContext,
+        ctxt: &'a ConstResolutionContext,
     ) -> Result<(Value, ResolveFunc<'a>)>;
 }
 
@@ -24,29 +24,23 @@ pub trait ConstResolver {
     fn resolve(&self, index: &ConstIndex) -> Result<Value>;
 }
 
-pub struct GlobalResolver<'a> {
-    ctxt: &'a GlobalContext,
+pub struct ImportResolver<'a> {
+    ctxt: &'a ConstResolutionContext,
 }
 
-impl<'a> GlobalResolver<'a> {
-    pub fn new(ctxt: &'a GlobalContext) -> Self {
-        GlobalResolver { ctxt }
+impl<'a> ImportResolver<'a> {
+    pub fn new(ctxt: &'a ConstResolutionContext) -> Self {
+        ImportResolver { ctxt }
     }
 }
 
-impl<'a> ConstResolver for GlobalResolver<'a> {
+impl<'a> ConstResolver for ImportResolver<'a> {
     fn resolve(&self, index: &ConstIndex) -> Result<Value> {
         match index {
             ConstIndex::Local(_layer_index) => Err(RuntimeError::new_internal_error(
                 "Local resolution not supported.",
             )),
-            ConstIndex::Global(name) => {
-                let value = self
-                    .ctxt
-                    .lookup_symbol(name)
-                    .ok_or_else(|| RuntimeError::new_internal_error("Symbol not found."))?;
-                Ok(value)
-            }
+            ConstIndex::ModuleImport(index) => self.ctxt.import_environment().get_import(*index),
         }
     }
 }
@@ -78,13 +72,13 @@ impl<'a> ConstResolver for LocalResolver<'a> {
                     .ok_or_else(|| RuntimeError::new_internal_error("Invalid index."))?;
                 Ok(value.clone())
             }
-            ConstIndex::Global(_) => self.parent.resolve(index),
+            ConstIndex::ModuleImport(_) => self.parent.resolve(index),
         }
     }
 }
 
 pub fn resolve_constants<'a, T>(
-    ctxt: &'a GlobalContext,
+    ctxt: &'a ConstResolutionContext,
     const_resolver: &'a dyn ConstResolver,
     values: &'a [T],
 ) -> Result<Vec<Value>>
@@ -110,14 +104,10 @@ where
     Ok(resolved_values)
 }
 
-#[derive(Clone, Debug)]
-pub struct ConstTable(Vec<ConstValue>);
+#[derive(Clone)]
+pub struct ValueTable(Vec<Value>);
 
-impl ConstTable {
-    pub fn new(values: Vec<ConstValue>) -> Self {
-        ConstTable(values)
-    }
-
+impl ValueTable {
     /// Resolve a list of constant values into a new vector of runtime values.
     ///
     /// These values are resolved into the GlobalContext, so they will participate in
@@ -126,40 +116,36 @@ impl ConstTable {
     /// We allow for self-referential constants and recursive constants via creating
     /// deferred references which will be resolved by the time that constant
     /// resolution completes.
-    pub fn resolve(&self, ctxt: &GlobalContext) -> Result<ValueTable> {
-        let curr_layer = GlobalResolver::new(ctxt);
-        let values = resolve_constants(ctxt, &curr_layer, &self.0)?;
+    pub fn from_binary(const_table: &ConstTable, ctxt: &ConstResolutionContext) -> Result<Self> {
+        let curr_layer = ImportResolver::new(ctxt);
+        let values = resolve_constants(ctxt, &curr_layer, const_table.values())?;
         Ok(ValueTable(values))
     }
-}
-
-#[derive(Clone)]
-pub struct ValueTable(Vec<Value>);
-
-impl ValueTable {
-    pub fn at(&self, index: usize) -> Result<&Value> {
+    
+    pub fn at(&self, index: u32) -> Result<&Value> {
         self.0
-            .get(index)
+            .get(usize::try_from(index).unwrap())
             .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::pure_values::Float;
+    use crate::{pure_values::Float, runtime::context::GlobalContext};
 
     use super::*;
 
     #[test]
     fn build_simple_values() {
-        let ctxt = GlobalContext::new();
+        let ctxt = ConstResolutionContext::new(GlobalContext::new());
         let const_table = ConstTable::new(vec![
             ConstValue::Integer(42.into()),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
             ConstValue::String("hello".into()),
-        ]);
+        ])
+        .unwrap();
 
-        let resolved_values = const_table.resolve(&ctxt).unwrap();
+        let resolved_values = ValueTable::from_binary(&const_table, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 3);
 
         match resolved_values.at(0).unwrap() {
@@ -180,7 +166,7 @@ mod tests {
 
     #[test]
     fn build_composite_value() {
-        let ctxt = GlobalContext::new();
+        let ctxt = ConstResolutionContext::new(GlobalContext::new());
         let values = ConstTable::new(vec![
             ConstValue::Integer(42.into()),
             ConstValue::List(vec![
@@ -188,9 +174,10 @@ mod tests {
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
                 ConstIndex::Local(LayerIndex::new_in_base(0)),
             ]),
-        ]);
+        ])
+        .unwrap();
 
-        let resolved_values = values.resolve(&ctxt).unwrap();
+        let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);
 
         match resolved_values.at(1).unwrap() {

@@ -1,11 +1,5 @@
-use std::rc::Rc;
+use self::{context::GlobalContext, error::Result, stack_frame::StackFrame, value::Value};
 
-use self::{
-    context::GlobalContext, error::Result, instructions::InstEvalList, stack_frame::StackFrame,
-    value::Value,
-};
-
-pub(super) mod builder;
 pub(super) mod constants;
 pub(super) mod context;
 pub(super) mod environment;
@@ -14,8 +8,7 @@ pub(super) mod inst_set;
 pub(super) mod instructions;
 pub(super) mod stack_frame;
 pub(super) mod value;
-
-pub use builder::RuntimeBuilder;
+pub(super) mod modules;
 
 pub struct Runtime {
     global_context: GlobalContext,

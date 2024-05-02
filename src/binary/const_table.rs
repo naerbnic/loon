@@ -1,20 +1,17 @@
-use std::{
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::rc::Rc;
 
 use crate::{
     pure_values::{Float, Integer},
     runtime::{
         constants::{resolve_constants, ConstLoader, ConstResolver, ResolveFunc},
-        context::GlobalContext,
+        context::ConstResolutionContext,
         error::RuntimeError,
         value::{Function, List, Value},
     },
     util::imm_string::ImmString,
 };
 
-use super::{instructions::InstructionList, symbols::GlobalSymbol};
+use super::instructions::InstructionList;
 
 /// An index of a constant in the layers of constant values.
 ///
@@ -64,14 +61,14 @@ pub enum ConstIndex {
     Local(LayerIndex),
 
     /// An index to be resolved globally by name.
-    Global(GlobalSymbol),
+    ModuleImport(u32),
 }
 
 impl ConstIndex {
     pub fn in_prev_layer(&self) -> Option<Self> {
         match self {
             ConstIndex::Local(layer_index) => layer_index.in_prev_layer().map(ConstIndex::Local),
-            ConstIndex::Global(g) => Some(ConstIndex::Global(g.clone())),
+            ConstIndex::ModuleImport(g) => Some(ConstIndex::ModuleImport(g.clone())),
         }
     }
 }
@@ -118,7 +115,7 @@ impl ConstLoader for ConstValue {
     fn load<'a>(
         &'a self,
         const_resolver: &'a dyn ConstResolver,
-        ctxt: &'a GlobalContext,
+        ctxt: &'a ConstResolutionContext,
     ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
         type ResolverFn<'a> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'a>;
         let (value, resolver) = match self {
@@ -127,7 +124,7 @@ impl ConstLoader for ConstValue {
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
             ConstValue::String(s) => (Value::String(s.clone()), None),
             ConstValue::List(list) => {
-                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
+                let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
                 let resolver: ResolverFn = Box::new(move |vs| {
                     let mut list_elems = Vec::with_capacity(list.len());
                     for index in list {
@@ -140,13 +137,16 @@ impl ConstLoader for ConstValue {
                 (Value::List(deferred), Some(resolver))
             }
             ConstValue::Function(const_func) => {
-                let (deferred, resolve_fn) = ctxt.create_deferred_ref();
+                let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
                 let resolver: ResolverFn = Box::new(move |vs| {
                     let resolved_func_consts =
                         resolve_constants(ctxt, vs, const_func.const_table().values())?;
                     resolve_fn(Function::new_managed(
                         resolved_func_consts,
-                        Rc::new(ctxt.resolve_instructions(const_func.instructions())?),
+                        Rc::new(
+                            ctxt.global_context()
+                                .resolve_instructions(const_func.instructions())?,
+                        ),
                     ));
                     Ok(())
                 });
@@ -182,8 +182,8 @@ fn collect_constraints(
                     return Err(ConstValidationError::LocalIndexResolutionError);
                 }
             }
-            ConstIndex::Global(global) => {
-                constraints.absorb_constraint(&ConstIndex::Global(global.clone()));
+            ConstIndex::ModuleImport(global) => {
+                constraints.absorb_constraint(&ConstIndex::ModuleImport(global.clone()));
             }
         }
         Ok(())
@@ -218,14 +218,14 @@ pub struct ConstConstraints {
     /// The value of the entry is the minimum length of the list of constants
     /// that the const table depends on.
     layer_index_constraints: Vec<u32>,
-    global_constraints: HashSet<GlobalSymbol>,
+    module_index_constraint: u32,
 }
 
 impl ConstConstraints {
     pub fn new() -> Self {
         ConstConstraints {
             layer_index_constraints: Vec::new(),
-            global_constraints: HashSet::new(),
+            module_index_constraint: 0,
         }
     }
 
@@ -239,8 +239,8 @@ impl ConstConstraints {
                 let layer_constraint = &mut self.layer_index_constraints[layer_index.layer()];
                 *layer_constraint = (*layer_constraint).max(layer_index.index() as u32);
             }
-            ConstIndex::Global(symbol) => {
-                self.global_constraints.insert(symbol.clone());
+            ConstIndex::ModuleImport(import_index) => {
+                self.module_index_constraint = self.module_index_constraint.max(*import_index);
             }
         }
     }
@@ -278,33 +278,4 @@ impl ConstTable {
     pub fn constraints(&self) -> &ConstConstraints {
         &self.constraints
     }
-}
-
-pub struct ImportSource {
-    module_name: ImmString,
-    import_name: ImmString,
-}
-
-pub struct ConstModule {
-    /// The set of constants defined in this module. This const table must
-    /// be fully defined, with no escaping local references, and globals
-    /// must be covered by the global set, or the module's imports.
-    const_table: ConstTable,
-
-    /// The imports into this module. The key is the name of the import in the
-    /// module scope, and the value is the source of the import.
-    imports: Vec<ImportSource>,
-    
-    /// Exports from this module. Values are indexes into the const table.
-    exports: HashMap<ImmString, u32>,
-
-    /// The initializer for this module, if it has one.
-    ///
-    /// The value is an index into the const table.
-    initializer: Option<u32>,
-
-    /// The size of the module global table. At runtime, all globals will start
-    /// empty, and will cause an error if read in this state. The initializer
-    /// will be responsible for setting the globals to their initial values.
-    global_table_size: u32,
 }
