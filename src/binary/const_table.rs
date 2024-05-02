@@ -64,6 +64,15 @@ pub enum ConstIndex {
     Global(GlobalSymbol),
 }
 
+impl ConstIndex {
+    pub fn in_prev_layer(&self) -> Option<Self> {
+        match self {
+            ConstIndex::Local(layer_index) => layer_index.in_prev_layer().map(ConstIndex::Local),
+            ConstIndex::Global(g) => Some(ConstIndex::Global(g.clone())),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ConstFunction {
     /// Definitions of constants local to the function.

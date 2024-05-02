@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     const_table::{ConstFunction, ConstIndex, ConstTable, ConstValue, LayerIndex},
-    instructions::InstructionListBuilder,
+    instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
 };
 
 struct ValueSetInner {
@@ -29,6 +29,69 @@ impl InnerRc {
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.0.as_ptr(), other.0.as_ptr())
+    }
+
+    fn new_external(&self, value: ConstIndex) -> ValueRef {
+        let index = {
+            let mut inner = self.0.borrow_mut();
+            let index = inner.values.len();
+            inner.values.push(Some(ConstValue::ExternalRef(value)));
+            index
+        };
+        ValueRef {
+            value_set: self.clone(),
+            index,
+        }
+    }
+
+    pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
+        let index = {
+            let mut inner = self.0.borrow_mut();
+            let index = inner.values.len();
+            inner.values.push(None);
+            index
+        };
+        let value_ref = ValueRef {
+            value_set: self.clone(),
+            index,
+        };
+        let deferred_value = DeferredValue(value_ref.clone());
+        (value_ref, deferred_value)
+    }
+
+    pub fn new_int(&self, int_value: impl Into<Integer>) -> ValueRef {
+        let (value, def) = self.new_deferred();
+        def.resolve_int(int_value);
+        value
+    }
+
+    pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> ValueRef {
+        let (value, def) = self.new_deferred();
+        def.resolve_list(iter);
+        value
+    }
+
+    pub fn new_function(&self) -> (ValueRef, FunctionBuilder) {
+        let (value_ref, deferred_value) = self.new_deferred();
+        let builder = deferred_value.into_function_builder();
+        (value_ref, builder)
+    }
+
+    fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
+        let mut curr_layer = 0;
+        let mut curr_set = self.clone();
+        while !curr_set.ptr_eq(&value_ref.value_set) {
+            let next_set = {
+                let inner = curr_set.0.borrow();
+                curr_layer += 1;
+                inner.parent.as_ref()?.clone()
+            };
+            curr_set = next_set;
+        }
+        Some(ConstIndex::Local(LayerIndex::new(
+            curr_layer,
+            value_ref.index,
+        )))
     }
 
     pub fn to_const_table(&self) -> ConstTable {
@@ -56,36 +119,19 @@ impl ValueSet {
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
-        let index = {
-            let mut inner = self.0 .0.borrow_mut();
-            let index = inner.values.len();
-            inner.values.push(None);
-            index
-        };
-        let value_ref = ValueRef {
-            value_set: self.0.clone(),
-            index,
-        };
-        let deferred_value = DeferredValue(value_ref.clone());
-        (value_ref, deferred_value)
+        self.0.new_deferred()
     }
 
     pub fn new_int(&self, int_value: impl Into<Integer>) -> ValueRef {
-        let (value, def) = self.new_deferred();
-        def.resolve_int(int_value);
-        value
+        self.0.new_int(int_value)
     }
 
     pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> ValueRef {
-        let (value, def) = self.new_deferred();
-        def.resolve_list(iter);
-        value
+        self.0.new_list(iter)
     }
 
     pub fn new_function(&self) -> (ValueRef, FunctionBuilder) {
-        let (value_ref, deferred_value) = self.new_deferred();
-        let builder = deferred_value.into_function_builder();
-        (value_ref, builder)
+        self.0.new_function()
     }
 
     pub fn into_const_table(&self) -> ConstTable {
@@ -118,20 +164,7 @@ impl DeferredValue {
     }
 
     fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
-        let mut curr_layer = 0;
-        let mut curr_set = self.0.value_set.clone();
-        while !curr_set.ptr_eq(&value_ref.value_set) {
-            let next_set = {
-                let inner = curr_set.0.borrow();
-                curr_layer += 1;
-                inner.parent.as_ref()?.clone()
-            };
-            curr_set = next_set;
-        }
-        Some(ConstIndex::Local(LayerIndex::new(
-            curr_layer,
-            value_ref.index,
-        )))
+        self.0.value_set.find_ref_index(value_ref)
     }
 
     pub fn resolve_int(self, value: impl Into<Integer>) {
@@ -184,20 +217,52 @@ pub struct FunctionBuilder {
     insts: InstructionListBuilder,
 }
 
+macro_rules! def_build_inst_method {
+    ($method:ident($($arg:ident : $arg_type:ty),*)) => {
+        pub fn $method(&mut self, $($arg: $arg_type),*) -> &mut Self {
+            self.insts.$method($($arg),*);
+            self
+        }
+    };
+}
+
 impl FunctionBuilder {
-    fn make_int(&self) -> ValueRef {
-        todo!()
+    pub fn push_int(&mut self, value: impl Into<Integer>) -> &mut Self {
+        let value_ref = self.local_value_set.new_int(value);
+        self.push_value(&value_ref);
+        self
     }
 
-    fn curr_target(&self) -> ValueRef {
-        todo!()
+    pub fn push_value(&mut self, value: &ValueRef) -> &mut Self {
+        let const_index = self.local_value_set.find_ref_index(value).unwrap();
+        let index = if let Some(parent_index) = const_index.in_prev_layer() {
+            let value_ref = self.local_value_set.new_external(parent_index);
+            value_ref.index
+        } else if let ConstIndex::Local(index) = const_index {
+            index.index()
+        } else {
+            panic!("Invalid const index.");
+        };
+        self.insts.push_const(index as u32);
+        self
     }
 
-    fn push_value(&self, value: &ValueRef) {
-        todo!()
-    }
+    def_build_inst_method!(add());
+    def_build_inst_method!(push_copy(s: StackIndex));
+    def_build_inst_method!(pop(n: u32));
+    def_build_inst_method!(bool_and());
+    def_build_inst_method!(bool_or());
+    def_build_inst_method!(bool_xor());
+    def_build_inst_method!(bool_not());
+    def_build_inst_method!(compare(op: CompareOp));
+    def_build_inst_method!(call(call: CallInstruction));
+    def_build_inst_method!(call_dynamic());
+    def_build_inst_method!(return_(n: u32));
+    def_build_inst_method!(return_dynamic());
+    def_build_inst_method!(branch_if(target: &str));
+    def_build_inst_method!(define_branch_target(target: &str));
 
-    fn build(self) {
+    pub fn build(self) {
         self.value_ref
             .resolve(ConstValue::Function(ConstFunction::new(
                 self.local_value_set.to_const_table(),
