@@ -24,6 +24,12 @@ pub enum StackIndex {
 #[derive(Copy, Clone, Debug)]
 pub struct BranchTarget(u32);
 
+impl BranchTarget {
+    pub fn target_index(&self) -> u32 {
+        self.0
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum CompareOp {
     // Referential equality.
@@ -47,18 +53,21 @@ pub struct CallInstruction {
 }
 
 #[derive(Clone, Debug)]
-pub struct OtherInstruction {
-    opcode: Opcode,
-    args: Vec<InstArg>,
-}
-
-#[derive(Clone, Debug)]
 pub enum Instruction {
-    /// Push a constant onto the stack.
+    /// Push a local constant onto the stack.
     PushConst(u32),
 
     /// Push a copy of the given stack index onto the stack.
     PushCopy(StackIndex),
+
+    /// Push a module import onto the stack.
+    PushImport(u32),
+
+    /// Pushes the value of a global from the module.
+    PushGlobal(u32),
+
+    /// Pops the top value off of the stack and writes it to the global.
+    PopGlobal(u32),
 
     /// Pop the top N values off of the stack.
     Pop(u32),
@@ -97,8 +106,6 @@ pub enum Instruction {
     /// Returns from a function. The top of the stack must be an integer
     /// representing the number of return values, followed by the return values.
     ReturnDynamic,
-
-    Other(OtherInstruction),
 }
 
 #[derive(Clone, Debug)]
@@ -131,7 +138,10 @@ impl InstructionListBuilder {
     }
 
     inst_builder!(push_const, PushConst(c: u32));
+    inst_builder!(push_import, PushImport(index: u32));
     inst_builder!(push_copy, PushCopy(s: StackIndex));
+    inst_builder!(push_global, PushGlobal(index: u32));
+    inst_builder!(pop_global, PopGlobal(index: u32));
     inst_builder!(pop, Pop(n: u32));
     inst_builder!(add, Add);
     inst_builder!(bool_and, BoolAnd);
