@@ -287,7 +287,7 @@ mod tests {
         let value_set = ValueSet::new_root();
         let i1 = value_set.new_int(42);
         let i2 = value_set.new_int(1138);
-        let list = value_set.new_list(vec![i1.clone(), i2.clone()]);
+        let _list = value_set.new_list(vec![i1.clone(), i2.clone()]);
         let const_table = value_set.into_const_table();
         assert!(!const_table.constraints().needs_parent_layers());
     }
