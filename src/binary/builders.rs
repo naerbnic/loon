@@ -117,7 +117,7 @@ impl DeferredValue {
         self.0.resolve(const_value);
     }
 
-    fn find_ref(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
+    fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
         let mut curr_layer = 0;
         let mut curr_set = self.0.value_set.clone();
         while !curr_set.ptr_eq(&value_ref.value_set) {
@@ -149,7 +149,7 @@ impl DeferredValue {
     pub fn resolve_list(self, iter: impl IntoIterator<Item = ValueRef>) {
         let values = iter
             .into_iter()
-            .map(|v| self.find_ref(&v).expect("Invalid reference"))
+            .map(|v| self.find_ref_index(&v).expect("Invalid reference"))
             .collect();
         self.resolve(ConstValue::List(values))
     }
