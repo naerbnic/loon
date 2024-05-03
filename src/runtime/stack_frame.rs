@@ -1,8 +1,11 @@
 use std::{borrow::Cow, rc::Rc};
 
 use super::{
+    context::InstEvalContext,
     error::{Result, RuntimeError},
-    instructions::{CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult},
+    instructions::{
+        CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
+    },
     value::Value,
 };
 
@@ -24,13 +27,17 @@ impl InstState {
         self.pc
     }
 
-    pub fn update_pc(&mut self, pc: usize) -> Result<()> {
-        if pc >= self.inst_list.len() {
+    pub fn update_pc(&mut self, pc: InstructionTarget) -> Result<()> {
+        let next_pc = match pc {
+            InstructionTarget::Step => self.pc + 1,
+            InstructionTarget::Branch(i) => i,
+        };
+        if next_pc >= self.inst_list.len() {
             return Err(RuntimeError::new_operation_precondition_error(
                 "Instruction stepped out of bounds.",
             ));
         }
-        self.pc = pc;
+        self.pc = next_pc;
         Ok(())
     }
 }
@@ -88,22 +95,18 @@ impl StackFrame {
         Ok(args)
     }
 
-    pub fn step(&mut self) -> Result<Option<FrameChange>> {
+    pub fn step(&mut self, ctxt: &InstEvalContext) -> Result<Option<FrameChange>> {
         let inst = self.inst_state.curr_inst();
-        let result = match inst.execute(&mut self.local_stack)? {
-            InstructionResult::Next => {
-                self.inst_state.update_pc(self.inst_state.pc() + 1)?;
-                None
-            }
-            InstructionResult::Branch(i) => {
-                self.inst_state.update_pc(i)?;
+        let result = match inst.execute(ctxt, &mut self.local_stack)? {
+            InstructionResult::Next(target) => {
+                self.inst_state.update_pc(target)?;
                 None
             }
             InstructionResult::Return => Some(FrameChange::Return(self.read_args_from_stack()?)),
-            InstructionResult::Call(i) => {
+            InstructionResult::Call(func_call) => {
                 let function = self.local_stack.pop()?;
                 let args = self.read_args_from_stack()?;
-                self.inst_state.update_pc(i)?;
+                self.inst_state.update_pc(func_call.return_target())?;
                 let call = CallStepResult { function, args };
                 Some(FrameChange::Call(call))
             }
@@ -111,9 +114,9 @@ impl StackFrame {
         Ok(result)
     }
 
-    pub fn run_to_frame_change(&mut self) -> Result<FrameChange> {
+    pub fn run_to_frame_change(&mut self, ctxt: &InstEvalContext) -> Result<FrameChange> {
         loop {
-            if let Some(result) = self.step()? {
+            if let Some(result) = self.step(ctxt)? {
                 return Ok(result);
             }
         }

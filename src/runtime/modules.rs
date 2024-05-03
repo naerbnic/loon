@@ -24,6 +24,26 @@ impl ModuleGlobals {
         }
         ModuleGlobals(Rc::new(globals))
     }
+
+    pub fn at(&self, index: u32) -> Result<Value> {
+        let cell = self
+            .0
+            .get(usize::try_from(index).unwrap())
+            .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))?;
+        cell.borrow()
+            .clone()
+            .ok_or_else(|| RuntimeError::new_internal_error("Global not set."))
+    }
+
+    pub fn set(&self, index: u32, value: Value) -> std::prelude::v1::Result<(), RuntimeError> {
+        let mut cell = self
+            .0
+            .get(usize::try_from(index).unwrap())
+            .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))?
+            .borrow_mut();
+        cell.replace(value);
+        Ok(())
+    }
 }
 
 struct Inner {

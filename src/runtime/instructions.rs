@@ -1,15 +1,47 @@
 use std::rc::Rc;
 
-use crate::binary::instructions::InstructionList;
+use crate::{binary::instructions::InstructionList, refs::GcRef};
 
-use super::{error::RuntimeError, stack_frame::LocalStack, value::Value};
+use super::{
+    context::InstEvalContext,
+    error::RuntimeError,
+    stack_frame::LocalStack,
+    value::{Function, Value},
+};
+
+#[derive(Clone, Copy, Debug)]
+pub enum InstructionTarget {
+    Step,
+    Branch(usize),
+}
+
+pub struct FunctionCallResult {
+    function: GcRef<Function>,
+    args: Vec<Value>,
+    return_target: InstructionTarget,
+}
+
+impl FunctionCallResult {
+    pub fn new(
+        function: GcRef<Function>,
+        args: Vec<Value>,
+        return_target: InstructionTarget,
+    ) -> Self {
+        FunctionCallResult {
+            function,
+            args,
+            return_target,
+        }
+    }
+
+    pub fn return_target(&self) -> InstructionTarget {
+        self.return_target
+    }
+}
 
 pub enum InstructionResult {
     /// Go to the next instruction.
-    Next,
-
-    /// Go to the instruction at the given index.
-    Branch(usize),
+    Next(InstructionTarget),
 
     /// Return from the current function. The top of the stack must be an
     /// integer representing the number of return values, followed by the
@@ -19,7 +51,7 @@ pub enum InstructionResult {
     /// Call a function. The top of the stack must be the function value,
     /// followed by an integer representing the number of arguments, followed by
     /// the arguments. The value is the index of the instruction to return to.
-    Call(usize),
+    Call(FunctionCallResult),
 }
 
 /// An object that can be executed as an instruction.
@@ -27,13 +59,18 @@ pub enum InstructionResult {
 /// These are reused across multiple stack frames, so they should be immutable.
 /// Further, as they will likely be shared across multiple contexts, they should
 /// not contain any references to `loon::Value` objects.
-pub(crate) trait InstEval {
-    fn execute(&self, stack: &mut LocalStack) -> Result<InstructionResult, RuntimeError>;
+pub(crate) trait InstEval: std::fmt::Debug {
+    fn execute(
+        &self,
+        ctxt: &InstEvalContext,
+        stack: &mut LocalStack,
+    ) -> Result<InstructionResult, RuntimeError>;
 }
 
 pub type InstPtr = Rc<dyn InstEval>;
 
-pub(crate) struct InstEvalList(Vec<InstPtr>);
+#[derive(Clone, Debug)]
+pub struct InstEvalList(Vec<InstPtr>);
 
 impl InstEvalList {
     pub fn from_inst_list(inst_list: &InstructionList) -> Self {
@@ -52,14 +89,6 @@ impl InstEvalList {
 impl FromIterator<InstPtr> for InstEvalList {
     fn from_iter<T: IntoIterator<Item = InstPtr>>(iter: T) -> Self {
         InstEvalList(FromIterator::from_iter(iter))
-    }
-}
-
-impl std::fmt::Debug for InstEvalList {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_tuple("InstructionList")
-            .field(&self.0.len())
-            .finish()
     }
 }
 

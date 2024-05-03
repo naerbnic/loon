@@ -29,7 +29,7 @@ impl Runtime {
     pub fn run(&mut self) -> Result<Vec<Value>> {
         loop {
             let frame = self.call_stack.last_mut().unwrap();
-            match frame.run_to_frame_change()? {
+            match frame.run_to_frame_change(todo!())? {
                 instructions::FrameChange::Return(args) => {
                     self.call_stack.pop().expect("Call stack is empty.");
                     match self.call_stack.last_mut() {
