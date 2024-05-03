@@ -14,9 +14,9 @@ struct ModuleEnvironmentInner {
 pub struct ModuleImportEnvironment(Rc<ModuleEnvironmentInner>);
 
 impl ModuleImportEnvironment {
-    pub fn new(values: Vec<Value>) -> Self {
+    pub fn new(imports: Vec<Value>) -> Self {
         ModuleImportEnvironment(Rc::new(ModuleEnvironmentInner {
-            imports: Vec::new(),
+            imports,
         }))
     }
 
