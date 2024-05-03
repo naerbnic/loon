@@ -11,7 +11,6 @@ use super::{
 };
 
 struct ValueSetInner {
-    parent: Option<InnerRc>,
     values: Vec<Option<ConstValue>>,
 }
 
@@ -19,8 +18,8 @@ struct ValueSetInner {
 struct InnerRc(Rc<RefCell<ValueSetInner>>);
 
 impl InnerRc {
-    pub fn new(parent: Option<InnerRc>, values: Vec<Option<ConstValue>>) -> Self {
-        InnerRc(Rc::new(RefCell::new(ValueSetInner { parent, values })))
+    pub fn new(values: Vec<Option<ConstValue>>) -> Self {
+        InnerRc(Rc::new(RefCell::new(ValueSetInner { values })))
     }
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
@@ -61,17 +60,7 @@ impl InnerRc {
     }
 
     fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
-        let mut curr_layer = 0;
-        let mut curr_set = self.clone();
-        while !curr_set.ptr_eq(&value_ref.value_set) {
-            let next_set = {
-                let inner = curr_set.0.borrow();
-                curr_layer += 1;
-                inner.parent.as_ref()?.clone()
-            };
-            curr_set = next_set;
-        }
-        if curr_layer > 0 {
+        if !self.ptr_eq(&value_ref.value_set) {
             return None;
         }
         Some(ConstIndex::ModuleConst(
@@ -96,11 +85,7 @@ pub struct ValueSet(InnerRc);
 
 impl ValueSet {
     pub fn new_root() -> Self {
-        ValueSet(InnerRc::new(None, Vec::new()))
-    }
-
-    pub fn new_child(parent: &ValueSet) -> Self {
-        ValueSet(InnerRc::new(Some(parent.0.clone()), Vec::new()))
+        ValueSet(InnerRc::new(Vec::new()))
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
