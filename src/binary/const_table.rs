@@ -224,7 +224,7 @@ impl ConstConstraints {
 
     pub fn absorb_constraint(&mut self, index: &ConstIndex) {
         match index {
-            ConstIndex::ModuleConst(index) => {}
+            ConstIndex::ModuleConst(_index) => {}
             ConstIndex::ModuleImport(import_index) => {
                 self.module_index_constraint = self.module_index_constraint.max(*import_index);
             }

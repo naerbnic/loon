@@ -23,10 +23,6 @@ impl InnerRc {
         InnerRc(Rc::new(RefCell::new(ValueSetInner { parent, values })))
     }
 
-    pub fn new_child(&self) -> Self {
-        InnerRc::new(Some(self.clone()), Vec::new())
-    }
-
     pub fn ptr_eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.0.as_ptr(), other.0.as_ptr())
     }
@@ -274,6 +270,6 @@ mod tests {
         let i1 = value_set.new_int(42);
         let i2 = value_set.new_int(1138);
         let _list = value_set.new_list(vec![i1.clone(), i2.clone()]);
-        let const_table = value_set.into_const_table();
+        let _const_table = value_set.into_const_table();
     }
 }
