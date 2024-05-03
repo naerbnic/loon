@@ -15,9 +15,7 @@ pub struct ModuleImportEnvironment(Rc<ModuleEnvironmentInner>);
 
 impl ModuleImportEnvironment {
     pub fn new(imports: Vec<Value>) -> Self {
-        ModuleImportEnvironment(Rc::new(ModuleEnvironmentInner {
-            imports,
-        }))
+        ModuleImportEnvironment(Rc::new(ModuleEnvironmentInner { imports }))
     }
 
     pub fn get_import(&self, index: u32) -> Result<Value> {
