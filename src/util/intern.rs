@@ -20,7 +20,7 @@ where
         V: Hash + Eq + ?Sized,
         for<'a> &'a V: Into<T>,
     {
-        if let Some(interned) = self.map.get(&value) {
+        if let Some(interned) = self.map.get(value) {
             interned.clone()
         } else {
             let value: T = value.into();

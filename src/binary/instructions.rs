@@ -85,6 +85,9 @@ pub enum Instruction {
     /// Compare the top two values on the stack, applying the given comparison.
     Compare(CompareOp),
 
+    /// Unconditionally branch to the given target.
+    Branch(BranchTarget),
+
     /// Pop the top value off of the stack and branch if it is true. The value
     /// at the top of the stack must be a boolean.
     BranchIf(BranchTarget),
@@ -110,6 +113,12 @@ pub enum Instruction {
 
 #[derive(Clone, Debug)]
 pub struct InstructionList(Rc<Vec<Instruction>>);
+
+impl InstructionList {
+    pub fn instructions(&self) -> &[Instruction] {
+        &self.0[..]
+    }
+}
 
 pub struct InstructionListBuilder {
     branch_target_names: InternSet<ImmString>,
@@ -149,6 +158,7 @@ impl InstructionListBuilder {
     inst_builder!(bool_xor, BoolXor);
     inst_builder!(bool_not, BoolNot);
     inst_builder!(compare, Compare(op: CompareOp));
+    inst_builder!(branch, Branch(target: BranchTarget));
     inst_builder!(call, Call(call: CallInstruction));
     inst_builder!(call_dynamic, CallDynamic);
     inst_builder!(return_, Return(n: u32));

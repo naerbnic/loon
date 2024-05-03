@@ -16,6 +16,7 @@ pub use list::List;
 pub enum Value {
     Integer(Integer),
     Float(Float),
+    Bool(bool),
     String(ImmString),
     List(GcRef<List>),
     Function(GcRef<Function>),
@@ -60,7 +61,7 @@ impl GcTraceable for Value {
         V: GcRefVisitor,
     {
         match self {
-            Value::Integer(_) | Value::Float(_) | Value::String(_) => {}
+            Value::Integer(_) | Value::Float(_) | Value::String(_) | Value::Bool(_) => {}
             Value::List(l) => visitor.visit(l),
             Value::Function(f) => visitor.visit(f),
         }

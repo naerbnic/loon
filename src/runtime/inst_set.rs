@@ -7,9 +7,9 @@ use super::{
 };
 
 #[derive(Clone, Debug)]
-pub struct Return;
+pub struct ReturnDynamic;
 
-impl InstEval for Return {
+impl InstEval for ReturnDynamic {
     fn execute(
         &self,
         _ctxt: &InstEvalContext,
@@ -83,6 +83,12 @@ impl InstEval for CallDynamic {
 #[derive(Clone, Debug)]
 pub struct PushConst(u32);
 
+impl PushConst {
+    pub fn new(index: u32) -> Self {
+        PushConst(index)
+    }
+}
+
 impl InstEval for PushConst {
     fn execute(&self, ctxt: &InstEvalContext, stack: &mut LocalStack) -> Result<InstructionResult> {
         let value = ctxt.get_constant(self.0)?;
@@ -94,6 +100,12 @@ impl InstEval for PushConst {
 #[derive(Clone, Debug)]
 pub struct PushGlobal(u32);
 
+impl PushGlobal {
+    pub fn new(index: u32) -> Self {
+        PushGlobal(index)
+    }
+}
+
 impl InstEval for PushGlobal {
     fn execute(&self, ctxt: &InstEvalContext, stack: &mut LocalStack) -> Result<InstructionResult> {
         let value = ctxt.get_global(self.0)?;
@@ -104,6 +116,12 @@ impl InstEval for PushGlobal {
 
 #[derive(Clone, Debug)]
 pub struct Pop(u32);
+
+impl Pop {
+    pub fn new(count: u32) -> Self {
+        Pop(count)
+    }
+}
 
 impl InstEval for Pop {
     fn execute(
@@ -120,6 +138,12 @@ impl InstEval for Pop {
 
 #[derive(Clone, Debug)]
 pub struct SetGlobal(u32);
+
+impl SetGlobal {
+    pub fn new(index: u32) -> Self {
+        SetGlobal(index)
+    }
+}
 
 impl InstEval for SetGlobal {
     fn execute(&self, ctxt: &InstEvalContext, stack: &mut LocalStack) -> Result<InstructionResult> {

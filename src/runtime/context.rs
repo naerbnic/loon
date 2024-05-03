@@ -6,14 +6,15 @@ use super::{
     constants::ValueTable,
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
-    instructions::InstEvalList,
+    inst_set::{Add, CallDynamic, Pop, PushConst, PushGlobal, ReturnDynamic, SetGlobal},
+    instructions::{InstEvalList, InstPtr},
     modules::{Module, ModuleGlobals},
     value::Value,
 };
 use crate::{
     binary::{
         self,
-        instructions::InstructionList,
+        instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
     refs::{GcContext, GcRef, GcTraceable},
@@ -65,8 +66,34 @@ impl GlobalContext {
             .get_export(import_source.import_name())
     }
 
-    pub fn resolve_instructions(&self, _inst_list: &InstructionList) -> Result<InstEvalList> {
-        todo!()
+    pub fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
+        let inst_slice = inst_list.instructions();
+        let result = inst_slice
+            .iter()
+            .map(|inst| {
+                Ok(match inst {
+                    Instruction::PushConst(i) => InstPtr::new(PushConst::new(*i)),
+                    Instruction::PushCopy(_) => todo!(),
+                    Instruction::PushImport(_) => todo!(),
+                    Instruction::PushGlobal(i) => InstPtr::new(PushGlobal::new(*i)),
+                    Instruction::PopGlobal(i) => InstPtr::new(SetGlobal::new(*i)),
+                    Instruction::Pop(i) => InstPtr::new(Pop::new(*i)),
+                    Instruction::Add => InstPtr::new(Add),
+                    Instruction::BoolAnd => todo!(),
+                    Instruction::BoolOr => todo!(),
+                    Instruction::BoolXor => todo!(),
+                    Instruction::BoolNot => todo!(),
+                    Instruction::Compare(_) => todo!(),
+                    Instruction::Branch(_) => todo!(),
+                    Instruction::BranchIf(_) => todo!(),
+                    Instruction::Call(_) => todo!(),
+                    Instruction::CallDynamic => InstPtr::new(CallDynamic),
+                    Instruction::Return(_) => todo!(),
+                    Instruction::ReturnDynamic => InstPtr::new(ReturnDynamic),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(InstEvalList::from_inst_ptrs(result))
     }
 }
 

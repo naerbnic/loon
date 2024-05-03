@@ -67,18 +67,32 @@ pub(crate) trait InstEval: std::fmt::Debug {
     ) -> Result<InstructionResult, RuntimeError>;
 }
 
-pub type InstPtr = Rc<dyn InstEval>;
+#[derive(Clone, Debug)]
+pub struct InstPtr(Rc<dyn InstEval>);
+
+impl InstPtr {
+    pub fn new<T>(inst: T) -> Self
+    where
+        T: InstEval + 'static,
+    {
+        InstPtr(Rc::new(inst))
+    }
+
+    pub fn to_eval(&self) -> &dyn InstEval {
+        &*self.0
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct InstEvalList(Vec<InstPtr>);
 
 impl InstEvalList {
-    pub fn from_inst_list(inst_list: &InstructionList) -> Self {
-        todo!()
+    pub fn from_inst_ptrs(inst_list: Vec<InstPtr>) -> Self {
+        InstEvalList(inst_list)
     }
 
     pub fn inst_at(&self, index: usize) -> Option<&dyn InstEval> {
-        self.0.get(index).map(|e| &**e)
+        self.0.get(index).map(|e| e.to_eval())
     }
 
     pub fn len(&self) -> usize {
