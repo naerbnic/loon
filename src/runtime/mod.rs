@@ -6,9 +6,9 @@ pub(super) mod environment;
 pub(super) mod error;
 pub(super) mod inst_set;
 pub(super) mod instructions;
+pub(super) mod modules;
 pub(super) mod stack_frame;
 pub(super) mod value;
-pub(super) mod modules;
 
 pub struct Runtime {
     global_context: GlobalContext,

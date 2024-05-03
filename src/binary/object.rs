@@ -1,3 +1,1 @@
-pub struct BinaryObject {
-    
-}
+pub struct BinaryObject {}

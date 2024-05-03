@@ -121,7 +121,7 @@ impl ValueTable {
         let values = resolve_constants(ctxt, &curr_layer, const_table.values())?;
         Ok(ValueTable(values))
     }
-    
+
     pub fn at(&self, index: u32) -> Result<&Value> {
         self.0
             .get(usize::try_from(index).unwrap())
