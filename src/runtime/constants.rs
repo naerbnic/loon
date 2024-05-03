@@ -2,7 +2,7 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use crate::binary::const_table::{ConstIndex, ConstTable};
+use crate::binary::const_table::ConstTable;
 
 use super::{
     context::ConstResolutionContext,
@@ -15,55 +15,6 @@ pub type ResolveFunc<'a> = Box<dyn FnOnce(&ModuleImportEnvironment, &[Value]) ->
 
 pub trait ConstLoader {
     fn load<'a>(&'a self, ctxt: &'a ConstResolutionContext) -> Result<(Value, ResolveFunc<'a>)>;
-}
-
-pub trait ConstResolver {
-    fn resolve(&self, index: &ConstIndex) -> Result<Value>;
-}
-
-pub struct ImportResolver<'a> {
-    ctxt: &'a ConstResolutionContext,
-}
-
-impl<'a> ImportResolver<'a> {
-    pub fn new(ctxt: &'a ConstResolutionContext) -> Self {
-        ImportResolver { ctxt }
-    }
-}
-
-impl<'a> ConstResolver for ImportResolver<'a> {
-    fn resolve(&self, index: &ConstIndex) -> Result<Value> {
-        match index {
-            ConstIndex::ModuleConst(_layer_index) => Err(RuntimeError::new_internal_error(
-                "Local resolution not supported.",
-            )),
-            ConstIndex::ModuleImport(index) => self.ctxt.import_environment().get_import(*index),
-        }
-    }
-}
-
-struct LocalResolver<'a> {
-    imports: &'a ModuleImportEnvironment,
-    values: &'a [Value],
-}
-
-impl<'a> LocalResolver<'a> {
-    pub fn new(imports: &'a ModuleImportEnvironment, values: &'a [Value]) -> Self {
-        LocalResolver { imports, values }
-    }
-}
-
-impl<'a> ConstResolver for LocalResolver<'a> {
-    fn resolve(&self, index: &ConstIndex) -> Result<Value> {
-        match index {
-            ConstIndex::ModuleConst(index) => self
-                .values
-                .get(usize::try_from(*index).unwrap())
-                .cloned()
-                .ok_or_else(|| RuntimeError::new_internal_error("Invalid index.")),
-            ConstIndex::ModuleImport(index) => self.imports.get_import(*index),
-        }
-    }
 }
 
 pub fn resolve_constants<'a, T>(
@@ -103,7 +54,6 @@ impl ValueTable {
     /// deferred references which will be resolved by the time that constant
     /// resolution completes.
     pub fn from_binary(const_table: &ConstTable, ctxt: &ConstResolutionContext) -> Result<Self> {
-        let curr_layer = ImportResolver::new(ctxt);
         let values = resolve_constants(ctxt, ctxt.import_environment(), const_table.values())?;
         Ok(ValueTable(values))
     }
@@ -118,7 +68,9 @@ impl ValueTable {
 #[cfg(test)]
 mod tests {
     use crate::{
-        binary::const_table::ConstValue, pure_values::Float, runtime::context::GlobalContext,
+        binary::const_table::{ConstIndex, ConstValue},
+        pure_values::Float,
+        runtime::context::GlobalContext,
     };
 
     use super::*;
