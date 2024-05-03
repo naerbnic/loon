@@ -3,8 +3,9 @@ use std::rc::Rc;
 use crate::{
     pure_values::{Float, Integer},
     runtime::{
-        constants::{resolve_constants, ConstLoader, ConstResolver, ResolveFunc},
+        constants::{ConstLoader, ResolveFunc},
         context::ConstResolutionContext,
+        environment::ModuleImportEnvironment,
         error::RuntimeError,
         value::{Function, List, Value},
     },
@@ -58,17 +59,24 @@ impl LayerIndex {
 #[derive(Clone, Debug)]
 pub enum ConstIndex {
     /// An index into the stack of constant tables.
-    Local(LayerIndex),
+    ModuleConst(u32),
 
     /// An index to be resolved globally by name.
     ModuleImport(u32),
 }
 
 impl ConstIndex {
-    pub fn in_prev_layer(&self) -> Option<Self> {
+    pub fn resolve(
+        &self,
+        imports: &ModuleImportEnvironment,
+        consts: &[Value],
+    ) -> Result<Value, RuntimeError> {
         match self {
-            ConstIndex::Local(layer_index) => layer_index.in_prev_layer().map(ConstIndex::Local),
-            ConstIndex::ModuleImport(g) => Some(ConstIndex::ModuleImport(*g)),
+            ConstIndex::ModuleConst(index) => consts
+                .get(usize::try_from(*index).unwrap())
+                .cloned()
+                .ok_or_else(|| RuntimeError::new_internal_error("Invalid index.")),
+            ConstIndex::ModuleImport(index) => imports.get_import(*index),
         }
     }
 }
@@ -76,20 +84,20 @@ impl ConstIndex {
 #[derive(Clone, Debug)]
 pub struct ConstFunction {
     /// Definitions of constants local to the function.
-    const_table: ConstTable,
+    module_constants: Vec<ConstIndex>,
     instructions: InstructionList,
 }
 
 impl ConstFunction {
-    pub fn new(const_table: ConstTable, instructions: InstructionList) -> Self {
+    pub fn new(module_constants: Vec<ConstIndex>, instructions: InstructionList) -> Self {
         ConstFunction {
-            const_table,
+            module_constants,
             instructions,
         }
     }
 
-    pub fn const_table(&self) -> &ConstTable {
-        &self.const_table
+    pub fn module_constants(&self) -> &[ConstIndex] {
+        &self.module_constants[..]
     }
 
     pub fn instructions(&self) -> &InstructionList {
@@ -99,11 +107,6 @@ impl ConstFunction {
 
 #[derive(Clone, Debug)]
 pub enum ConstValue {
-    /// An external ref to a constant.
-    ///
-    /// The resolution layer starts with the parent, so a layer of 0 refers to
-    /// the parent context.
-    ExternalRef(ConstIndex),
     Integer(Integer),
     Float(Float),
     String(ImmString),
@@ -114,21 +117,18 @@ pub enum ConstValue {
 impl ConstLoader for ConstValue {
     fn load<'a>(
         &'a self,
-        const_resolver: &'a dyn ConstResolver,
         ctxt: &'a ConstResolutionContext,
     ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
-        type ResolverFn<'a> = Box<dyn FnOnce(&dyn ConstResolver) -> Result<(), RuntimeError> + 'a>;
         let (value, resolver) = match self {
-            ConstValue::ExternalRef(index) => (const_resolver.resolve(index)?, None),
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
             ConstValue::String(s) => (Value::String(s.clone()), None),
             ConstValue::List(list) => {
                 let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
-                let resolver: ResolverFn = Box::new(move |vs| {
+                let resolver: ResolveFunc = Box::new(move |imports, vs| {
                     let mut list_elems = Vec::with_capacity(list.len());
                     for index in list {
-                        list_elems.push(vs.resolve(index)?);
+                        list_elems.push(index.resolve(imports, vs)?);
                     }
                     resolve_fn(List::from_iter(list_elems));
                     Ok(())
@@ -138,9 +138,13 @@ impl ConstLoader for ConstValue {
             }
             ConstValue::Function(const_func) => {
                 let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
-                let resolver: ResolverFn = Box::new(move |vs| {
-                    let resolved_func_consts =
-                        resolve_constants(ctxt, vs, const_func.const_table().values())?;
+                let resolver: ResolveFunc = Box::new(move |imports, vs| {
+                    let module_constants = const_func.module_constants();
+                    let mut resolved_func_consts =
+                        Vec::with_capacity(const_func.module_constants().len());
+                    for index in module_constants {
+                        resolved_func_consts.push(index.resolve(imports, vs)?);
+                    }
                     resolve_fn(Function::new_managed(
                         resolved_func_consts,
                         Rc::new(
@@ -154,7 +158,7 @@ impl ConstLoader for ConstValue {
             }
         };
 
-        Ok((value, resolver.unwrap_or(Box::new(|_| Ok(())))))
+        Ok((value, resolver.unwrap_or(Box::new(|_, _| Ok(())))))
     }
 }
 
@@ -175,10 +179,8 @@ fn collect_constraints(
         layer_index: &ConstIndex,
     ) -> Result<(), ConstValidationError> {
         match layer_index {
-            ConstIndex::Local(layer_index) => {
-                if let Some(prev_layer) = layer_index.in_prev_layer() {
-                    constraints.absorb_constraint(&ConstIndex::Local(prev_layer));
-                } else if curr_layer_size <= layer_index.index() {
+            ConstIndex::ModuleConst(index) => {
+                if curr_layer_size <= usize::try_from(*index).unwrap() {
                     return Err(ConstValidationError::LocalIndexResolutionError);
                 }
             }
@@ -192,9 +194,6 @@ fn collect_constraints(
     let mut constraints = ConstConstraints::new();
     for value in table_elements {
         match value {
-            ConstValue::ExternalRef(index) => {
-                constraints.absorb_constraint(index);
-            }
             ConstValue::List(list) => {
                 for index in list {
                     add_local_constraint(&mut constraints, table_elements.len(), index)?;
@@ -213,40 +212,23 @@ fn collect_constraints(
 
 #[derive(Debug)]
 pub struct ConstConstraints {
-    /// This contains constraints for the dependencies of the const table.
-    /// There is one entry in the vec is one layer below the const table itself.
-    /// The value of the entry is the minimum length of the list of constants
-    /// that the const table depends on.
-    layer_index_constraints: Vec<u32>,
     module_index_constraint: u32,
 }
 
 impl ConstConstraints {
     pub fn new() -> Self {
         ConstConstraints {
-            layer_index_constraints: Vec::new(),
             module_index_constraint: 0,
         }
     }
 
     pub fn absorb_constraint(&mut self, index: &ConstIndex) {
         match index {
-            ConstIndex::Local(layer_index) => {
-                if layer_index.layer() >= self.layer_index_constraints.len() {
-                    self.layer_index_constraints
-                        .resize(layer_index.layer() + 1, 0);
-                }
-                let layer_constraint = &mut self.layer_index_constraints[layer_index.layer()];
-                *layer_constraint = (*layer_constraint).max(layer_index.index() as u32);
-            }
+            ConstIndex::ModuleConst(index) => {}
             ConstIndex::ModuleImport(import_index) => {
                 self.module_index_constraint = self.module_index_constraint.max(*import_index);
             }
         }
-    }
-
-    pub fn needs_parent_layers(&self) -> bool {
-        !self.layer_index_constraints.is_empty()
     }
 }
 

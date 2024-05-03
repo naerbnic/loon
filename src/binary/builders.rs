@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::{
-    const_table::{ConstFunction, ConstIndex, ConstTable, ConstValue, LayerIndex},
+    const_table::{ConstFunction, ConstIndex, ConstTable, ConstValue},
     instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
 };
 
@@ -29,19 +29,6 @@ impl InnerRc {
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.0.as_ptr(), other.0.as_ptr())
-    }
-
-    fn new_external(&self, value: ConstIndex) -> ValueRef {
-        let index = {
-            let mut inner = self.0.borrow_mut();
-            let index = inner.values.len();
-            inner.values.push(Some(ConstValue::ExternalRef(value)));
-            index
-        };
-        ValueRef {
-            value_set: self.clone(),
-            index,
-        }
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
@@ -88,10 +75,12 @@ impl InnerRc {
             };
             curr_set = next_set;
         }
-        Some(ConstIndex::Local(LayerIndex::new(
-            curr_layer,
-            value_ref.index,
-        )))
+        if curr_layer > 0 {
+            return None;
+        }
+        Some(ConstIndex::ModuleConst(
+            u32::try_from(value_ref.index).unwrap(),
+        ))
     }
 
     pub fn to_const_table(&self) -> ConstTable {
@@ -190,7 +179,7 @@ impl DeferredValue {
     pub fn into_function_builder(self) -> FunctionBuilder {
         FunctionBuilder {
             value_ref: self.0.clone(),
-            local_value_set: self.0.value_set.new_child(),
+            const_indexes: Vec::new(),
             insts: InstructionListBuilder::new(),
         }
     }
@@ -213,7 +202,7 @@ impl ModuleBuilder {}
 pub struct FunctionBuilder {
     /// The value reference for the deferred function being built.
     value_ref: ValueRef,
-    local_value_set: InnerRc,
+    const_indexes: Vec<ConstIndex>,
     insts: InstructionListBuilder,
 }
 
@@ -228,18 +217,15 @@ macro_rules! def_build_inst_method {
 
 impl FunctionBuilder {
     pub fn push_int(&mut self, value: impl Into<Integer>) -> &mut Self {
-        let value_ref = self.local_value_set.new_int(value);
+        let value_ref = self.value_ref.value_set.new_int(value);
         self.push_value(&value_ref);
         self
     }
 
     pub fn push_value(&mut self, value: &ValueRef) -> &mut Self {
-        let const_index = self.local_value_set.find_ref_index(value).unwrap();
-        let index = if let Some(parent_index) = const_index.in_prev_layer() {
-            let value_ref = self.local_value_set.new_external(parent_index);
-            value_ref.index
-        } else if let ConstIndex::Local(index) = const_index {
-            index.index()
+        let const_index = self.value_ref.value_set.find_ref_index(value).unwrap();
+        let index = if let ConstIndex::ModuleConst(index) = const_index {
+            index
         } else {
             panic!("Invalid const index.");
         };
@@ -265,7 +251,7 @@ impl FunctionBuilder {
     pub fn build(self) {
         self.value_ref
             .resolve(ConstValue::Function(ConstFunction::new(
-                self.local_value_set.to_const_table(),
+                self.const_indexes,
                 self.insts.build(),
             )));
     }
@@ -289,6 +275,5 @@ mod tests {
         let i2 = value_set.new_int(1138);
         let _list = value_set.new_list(vec![i1.clone(), i2.clone()]);
         let const_table = value_set.into_const_table();
-        assert!(!const_table.constraints().needs_parent_layers());
     }
 }
