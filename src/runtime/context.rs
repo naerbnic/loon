@@ -58,7 +58,7 @@ impl GlobalEnv {
         Ok(())
     }
 
-    pub fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
+    pub(crate) fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
         let loaded_modules = self.0.loaded_modules.borrow();
         loaded_modules
             .get(import_source.module_id())

@@ -32,7 +32,10 @@ impl Function {
         Function::Managed(ManagedFunction::new(global, consts, inst_list))
     }
 
-    pub fn make_stack_frame(&self, args: Vec<Value>) -> Result<StackFrame, RuntimeError> {
+    pub fn make_stack_frame(
+        &self,
+        args: impl IntoIterator<Item = Value>,
+    ) -> Result<StackFrame, RuntimeError> {
         match self {
             Function::Managed(managed_func) => Ok(StackFrame::new(
                 managed_func.inst_list().clone(),

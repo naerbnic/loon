@@ -124,7 +124,6 @@ impl InnerRc {
     pub fn to_const_module(&self) -> Result<ConstModule> {
         let mut result = Vec::new();
         let inner = self.0.borrow();
-        dbg!(inner.values.len());
         for value in inner.values.iter() {
             result.push(
                 value

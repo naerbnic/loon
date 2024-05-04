@@ -23,14 +23,9 @@ impl InstEval for CallDynamic {
                 RuntimeError::new_operation_precondition_error("Number of arguments is too large.")
             }
         })?;
-        let mut args = Vec::with_capacity(usize::try_from(num_args).unwrap());
-        for _ in 0..num_args {
-            let arg = stack.pop()?;
-            args.push(arg);
-        }
         Ok(InstructionResult::Call(FunctionCallResult::new(
             func.clone(),
-            args,
+            num_args,
             InstructionTarget::Step,
         )))
     }

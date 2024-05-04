@@ -80,18 +80,8 @@ impl TopLevelRuntime {
 
     pub fn call_function(&mut self, num_args: u32) -> Result<u32> {
         let function = self.stack.pop()?;
-        let mut args = Vec::with_capacity(num_args as usize);
-        for _ in 0..num_args {
-            args.push(self.stack.pop()?);
-        }
-        args.reverse();
-        let mut eval_context = EvalContext::new(self, function.as_function()?.clone(), args)?;
-        let mut returned_values = eval_context.run()?;
-        let num_returned = returned_values.len() as u32;
-        for returned_value in returned_values.drain(..) {
-            self.stack.push(returned_value);
-        }
-        Ok(num_returned)
+        let mut eval_context = EvalContext::new(self);
+        eval_context.run(function.as_function()?.clone(), num_args)
     }
 
     pub fn get_int(&self, index: StackIndex) -> Result<Integer> {
@@ -105,34 +95,37 @@ struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
-    pub fn new(
-        top_level: &'a mut TopLevelRuntime,
-        function: GcRef<Function>,
-        args: Vec<Value>,
-    ) -> Result<Self> {
-        let stack_frame = function.with_mut(|func| func.make_stack_frame(args))?;
-        Ok(EvalContext {
+    pub fn new(top_level: &'a mut TopLevelRuntime) -> Self {
+        EvalContext {
             top_level,
-            call_stack: vec![stack_frame],
-        })
+            call_stack: Vec::new(),
+        }
     }
 
-    fn run(&mut self) -> Result<Vec<Value>> {
+    fn run(&mut self, function: GcRef<Function>, num_args: u32) -> Result<u32> {
+        let stack_frame = function
+            .with_mut(|func| func.make_stack_frame(self.top_level.stack.drain_top_n(num_args)?))?;
+        self.call_stack.push(stack_frame);
         loop {
             let frame = self.call_stack.last_mut().unwrap();
             match frame.run_to_frame_change(&self.top_level.global_context)? {
-                instructions::FrameChange::Return(args) => {
-                    self.call_stack.pop().expect("Call stack is empty.");
+                instructions::FrameChange::Return(num_returns) => {
+                    let mut prev_frame = self.call_stack.pop().expect("Call stack is empty.");
                     match self.call_stack.last_mut() {
                         Some(frame) => {
-                            frame.push_return_values(args)?;
+                            frame.push_iter(prev_frame.drain_top_n(num_returns)?);
                         }
-                        None => return Ok(args),
+                        None => {
+                            self.top_level
+                                .stack
+                                .push_iter(prev_frame.drain_top_n(num_returns)?);
+                            return Ok(num_returns);
+                        }
                     }
                 }
                 instructions::FrameChange::Call(call) => {
                     let function = call.function;
-                    let args = call.args;
+                    let args = frame.drain_top_n(call.num_args)?;
                     let stack_frame = function.with_mut(|f| f.make_stack_frame(args))?;
                     self.call_stack.push(stack_frame);
                 }

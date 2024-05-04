@@ -1,6 +1,6 @@
 use crate::runtime::{
     context::InstEvalContext,
-    error::Result,
+    error::{Result, RuntimeError},
     instructions::{InstEval, InstructionResult},
     stack_frame::LocalStack,
 };
@@ -12,8 +12,13 @@ impl InstEval for ReturnDynamic {
     fn execute(
         &self,
         _ctxt: &InstEvalContext,
-        _stack: &mut LocalStack,
+        stack: &mut LocalStack,
     ) -> Result<InstructionResult> {
-        Ok(InstructionResult::Return)
+        let num_args = stack.pop()?.as_compact_integer()?;
+        Ok(InstructionResult::Return(u32::try_from(num_args).map_err(
+            |e| {
+                RuntimeError::new_operation_precondition_error(format!("Conversion failure: {}", e))
+            },
+        )?))
     }
 }

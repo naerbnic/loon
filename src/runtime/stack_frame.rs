@@ -1,4 +1,4 @@
-use std::{borrow::Cow, rc::Rc};
+use std::rc::Rc;
 
 use crate::binary::instructions::StackIndex;
 
@@ -51,9 +51,9 @@ impl LocalStack {
         LocalStack { stack: Vec::new() }
     }
 
-    pub fn from_args<'a>(args: impl Into<Cow<'a, [Value]>>) -> Self {
+    pub fn from_args(args: impl IntoIterator<Item = Value>) -> Self {
         LocalStack {
-            stack: args.into().into_owned(),
+            stack: args.into_iter().collect(),
         }
     }
 
@@ -81,14 +81,16 @@ impl LocalStack {
             .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range."))
     }
 
-    pub fn read_args_from_stack(&mut self) -> Result<Vec<Value>> {
-        let arg_count_value = self.pop()?;
-        let arg_count = arg_count_value.as_compact_integer()?;
-        let mut args = Vec::new();
-        for _ in 0..arg_count {
-            args.push(self.pop()?);
-        }
-        Ok(args)
+    pub fn drain_top_n(&mut self, len: u32) -> Result<impl Iterator<Item = Value> + '_> {
+        let len = len as usize;
+        let start = self.stack.len().checked_sub(len).ok_or_else(|| {
+            RuntimeError::new_operation_precondition_error("Local stack is too small.")
+        })?;
+        Ok(self.stack.drain(start..))
+    }
+
+    pub fn push_iter(&mut self, iter: impl IntoIterator<Item = Value>) {
+        self.stack.extend(iter);
     }
 }
 
@@ -111,14 +113,14 @@ impl ManagedFrameState {
                 self.inst_state.update_pc(target)?;
                 None
             }
-            InstructionResult::Return => {
-                Some(FrameChange::Return(local_stack.read_args_from_stack()?))
-            }
+            InstructionResult::Return(num_values) => Some(FrameChange::Return(num_values)),
             InstructionResult::Call(func_call) => {
                 let function = func_call.function().clone();
-                let args = func_call.args().to_vec();
                 self.inst_state.update_pc(func_call.return_target())?;
-                let call = CallStepResult { function, args };
+                let call = CallStepResult {
+                    function,
+                    num_args: func_call.num_args(),
+                };
                 Some(FrameChange::Call(call))
             }
         };
@@ -155,7 +157,7 @@ impl StackFrame {
         inst_list: Rc<InstEvalList>,
         local_consts: ValueTable,
         module_globals: ModuleGlobals,
-        args: Vec<Value>,
+        args: impl IntoIterator<Item = Value>,
     ) -> Self {
         StackFrame {
             frame_state: FrameState::Managed(ManagedFrameState {
@@ -174,10 +176,11 @@ impl StackFrame {
         }
     }
 
-    pub fn push_return_values(&mut self, args: Vec<Value>) -> Result<()> {
-        for arg in args.into_iter().rev() {
-            self.local_stack.push(arg);
-        }
-        Ok(())
+    pub fn push_iter(&mut self, args: impl Iterator<Item = Value>) {
+        self.local_stack.push_iter(args);
+    }
+
+    pub fn drain_top_n(&mut self, len: u32) -> Result<impl Iterator<Item = Value> + '_> {
+        self.local_stack.drain_top_n(len)
     }
 }

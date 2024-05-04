@@ -3,10 +3,7 @@ use std::rc::Rc;
 use crate::refs::GcRef;
 
 use super::{
-    context::InstEvalContext,
-    error::RuntimeError,
-    stack_frame::LocalStack,
-    value::{Function, Value},
+    context::InstEvalContext, error::RuntimeError, stack_frame::LocalStack, value::Function,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -17,19 +14,15 @@ pub enum InstructionTarget {
 
 pub struct FunctionCallResult {
     function: GcRef<Function>,
-    args: Vec<Value>,
+    num_args: u32,
     return_target: InstructionTarget,
 }
 
 impl FunctionCallResult {
-    pub fn new(
-        function: GcRef<Function>,
-        args: Vec<Value>,
-        return_target: InstructionTarget,
-    ) -> Self {
+    pub fn new(function: GcRef<Function>, num_args: u32, return_target: InstructionTarget) -> Self {
         FunctionCallResult {
             function,
-            args,
+            num_args,
             return_target,
         }
     }
@@ -38,8 +31,8 @@ impl FunctionCallResult {
         &self.function
     }
 
-    pub fn args(&self) -> &[Value] {
-        &self.args
+    pub fn num_args(&self) -> u32 {
+        self.num_args
     }
 
     pub fn return_target(&self) -> InstructionTarget {
@@ -51,10 +44,9 @@ pub enum InstructionResult {
     /// Go to the next instruction.
     Next(InstructionTarget),
 
-    /// Return from the current function. The top of the stack must be an
-    /// integer representing the number of return values, followed by the
-    /// return values.
-    Return,
+    /// Return from the current function. The parameter is the number of values
+    /// on the top of the stack to return.
+    Return(u32),
 
     /// Call a function. The top of the stack must be the function value,
     /// followed by an integer representing the number of arguments, followed by
@@ -116,10 +108,10 @@ impl FromIterator<InstPtr> for InstEvalList {
 
 pub struct CallStepResult {
     pub function: GcRef<Function>,
-    pub args: Vec<Value>,
+    pub num_args: u32,
 }
 
 pub enum FrameChange {
-    Return(Vec<Value>),
+    Return(u32),
     Call(CallStepResult),
 }
