@@ -32,6 +32,13 @@ impl Function {
         Function::Managed(ManagedFunction::new(global, consts, inst_list))
     }
 
+    pub fn new_closure(function: GcRef<Function>, captured_values: Vec<Value>) -> Self {
+        Function::Closure(Closure {
+            function,
+            captured_values,
+        })
+    }
+
     pub fn make_stack_frame(
         &self,
         args: impl IntoIterator<Item = Value>,
@@ -44,11 +51,10 @@ impl Function {
                 args,
             )),
             Function::Closure(closure) => {
-                let mut inner_args = closure.captured_values.clone();
-                inner_args.extend(args);
+                let args = closure.captured_values.iter().cloned().chain(args);
                 let stack_frame = closure
                     .function
-                    .try_with(move |f| f.make_stack_frame(inner_args))
+                    .try_with(move |f| f.make_stack_frame(args))
                     .ok_or_else(|| {
                         RuntimeError::new_internal_error("Function is not available.")
                     })??;
