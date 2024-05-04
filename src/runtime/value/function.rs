@@ -3,8 +3,12 @@ use std::rc::Rc;
 use crate::{
     refs::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
-        constants::ValueTable, error::RuntimeError, instructions::InstEvalList,
-        modules::ModuleGlobals, stack_frame::{LocalStack, StackFrame}, value::Value,
+        constants::ValueTable,
+        error::RuntimeError,
+        instructions::InstEvalList,
+        modules::ModuleGlobals,
+        stack_frame::{LocalStack, StackFrame},
+        value::Value,
     },
 };
 
@@ -45,15 +49,23 @@ impl Function {
         mut local_stack: LocalStack,
     ) -> Result<StackFrame, RuntimeError> {
         match self {
-            Function::Managed(managed_func) => Ok(StackFrame::new(
-                managed_func.inst_list().clone(),
-                managed_func.constants().clone(),
-                managed_func.globals().clone(),
-                local_stack,
-            )),
+            Function::Managed(managed_func) => {
+                local_stack.push_iter(args);
+                Ok(StackFrame::new(
+                    managed_func.inst_list().clone(),
+                    managed_func.constants().clone(),
+                    managed_func.globals().clone(),
+                    local_stack,
+                ))
+            }
             Function::Closure(closure) => {
                 local_stack.push_iter(closure.captured_values.iter().cloned());
-                let args: Vec<_> = closure.captured_values.iter().cloned().chain(args).collect();
+                let args: Vec<_> = closure
+                    .captured_values
+                    .iter()
+                    .cloned()
+                    .chain(args)
+                    .collect();
                 let stack_frame = closure
                     .function
                     .try_with(move |f| f.make_stack_frame(args, local_stack))
