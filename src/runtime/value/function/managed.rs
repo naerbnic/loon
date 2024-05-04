@@ -2,7 +2,10 @@
 
 use std::rc::Rc;
 
-use crate::runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals};
+use crate::{
+    refs::{GcRefVisitor, GcTraceable},
+    runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals},
+};
 
 /// A managed function, representing code within the Loon runtime to evaluate.
 pub(crate) struct ManagedFunction {
@@ -30,5 +33,15 @@ impl ManagedFunction {
 
     pub fn globals(&self) -> &ModuleGlobals {
         &self.globals
+    }
+}
+
+impl GcTraceable for ManagedFunction {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.globals.trace(visitor);
+        self.constants.trace(visitor);
     }
 }

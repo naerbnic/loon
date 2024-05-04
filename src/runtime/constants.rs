@@ -2,7 +2,7 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use crate::binary::const_table::ConstValue;
+use crate::{binary::const_table::ConstValue, refs::GcTraceable};
 
 use super::{
     context::ConstResolutionContext,
@@ -69,6 +69,17 @@ impl ValueTable {
     }
 }
 
+impl GcTraceable for ValueTable {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: crate::refs::GcRefVisitor,
+    {
+        for value in self.0.iter() {
+            value.trace(visitor);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -82,7 +93,7 @@ mod tests {
     #[test]
     fn build_simple_values() {
         let global_ctxt = GlobalEnv::new();
-        let module_globals = ModuleGlobals::from_size_empty(0);
+        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
         let import_environment = ModuleImportEnvironment::new(vec![]);
         let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
         let const_table = vec![
@@ -113,7 +124,7 @@ mod tests {
     #[test]
     fn build_composite_value() {
         let global_ctxt = GlobalEnv::new();
-        let module_globals = ModuleGlobals::from_size_empty(0);
+        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
         let import_environment = ModuleImportEnvironment::new(vec![]);
         let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
         let values = vec![

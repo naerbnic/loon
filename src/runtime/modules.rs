@@ -4,7 +4,10 @@ use std::{
     rc::Rc,
 };
 
-use crate::binary::{self, modules::ModuleMemberId};
+use crate::{
+    binary::{self, modules::ModuleMemberId},
+    refs::{GcRef, GcTraceable},
+};
 
 use super::{
     constants::ValueTable,
@@ -14,36 +17,66 @@ use super::{
     value::Value,
 };
 
+pub struct ModuleGlobalsInner {
+    values: Vec<RefCell<Option<Value>>>,
+}
+
+impl GcTraceable for ModuleGlobalsInner {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: crate::refs::GcRefVisitor,
+    {
+        for value in self.values.iter() {
+            if let Some(value) = &*value.borrow() {
+                value.trace(visitor);
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct ModuleGlobals(Rc<Vec<RefCell<Option<Value>>>>);
+pub struct ModuleGlobals(GcRef<ModuleGlobalsInner>);
 
 impl ModuleGlobals {
-    pub fn from_size_empty(size: u32) -> Self {
+    pub fn from_size_empty(global_env: &GlobalEnv, size: u32) -> Self {
         let mut globals = Vec::with_capacity(usize::try_from(size).unwrap());
         for _ in 0..size {
             globals.push(RefCell::new(None));
         }
-        ModuleGlobals(Rc::new(globals))
+        ModuleGlobals(global_env.create_ref(ModuleGlobalsInner { values: globals }))
     }
 
     pub fn at(&self, index: u32) -> Result<Value> {
-        let cell = self
-            .0
-            .get(usize::try_from(index).unwrap())
-            .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))?;
-        cell.borrow()
-            .clone()
-            .ok_or_else(|| RuntimeError::new_internal_error("Global not set."))
+        self.0.with(|globals| {
+            let cell = globals
+                .values
+                .get(usize::try_from(index).unwrap())
+                .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))?;
+            cell.borrow()
+                .clone()
+                .ok_or_else(|| RuntimeError::new_internal_error("Global not set."))
+        })
     }
 
     pub fn set(&self, index: u32, value: Value) -> std::prelude::v1::Result<(), RuntimeError> {
-        let mut cell = self
-            .0
-            .get(usize::try_from(index).unwrap())
-            .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))?
-            .borrow_mut();
-        cell.replace(value);
-        Ok(())
+        self.0.with(|globals| {
+            let mut cell = globals
+                .values
+                .get(usize::try_from(index).unwrap())
+                .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))?
+                .borrow_mut();
+            cell.replace(value);
+            Ok(())
+        })
+    }
+}
+
+impl GcTraceable for ModuleGlobals {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: crate::refs::GcRefVisitor,
+    {
+        visitor.visit(&self.0);
     }
 }
 
@@ -65,7 +98,7 @@ impl Module {
             .iter()
             .map(|id| ctxt.get_import(id))
             .collect::<Result<Vec<_>>>()?;
-        let module_globals = ModuleGlobals::from_size_empty(module.global_table_size());
+        let module_globals = ModuleGlobals::from_size_empty(ctxt, module.global_table_size());
         let import_env = ModuleImportEnvironment::new(import_values);
         let const_ctxt = ConstResolutionContext::new(ctxt, &module_globals, &import_env);
         let members = ValueTable::from_binary(module.const_table(), &const_ctxt)?;
