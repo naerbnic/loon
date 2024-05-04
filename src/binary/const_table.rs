@@ -12,7 +12,7 @@ use crate::{
     util::imm_string::ImmString,
 };
 
-use super::{error::ValidationError, instructions::InstructionList};
+use super::instructions::InstructionList;
 
 /// An index of a constant in the layers of constant values.
 ///
@@ -169,45 +169,4 @@ impl ConstLoader for ConstValue {
 
         Ok((value, resolver.unwrap_or(Box::new(|_, _| Ok(())))))
     }
-}
-
-/// Check that the constant values are valid, and return the set of constraints
-/// the table has to meet.
-pub fn validate_const_values(
-    table_elements: &[ConstValue],
-    _globals_size: u32,
-    imports_size: u32,
-) -> Result<(), ValidationError> {
-    let check_index = |index: &ConstIndex| {
-        match index {
-            ConstIndex::ModuleConst(i) => {
-                if *i >= table_elements.len() as u32 {
-                    return Err(ValidationError::LocalIndexResolutionError);
-                }
-            }
-            ConstIndex::ModuleImport(i) => {
-                if *i >= imports_size {
-                    return Err(ValidationError::LocalIndexResolutionError);
-                }
-            }
-        }
-        Ok(())
-    };
-
-    for value in table_elements {
-        match value {
-            ConstValue::List(list) => {
-                for index in list {
-                    check_index(index)?;
-                }
-            }
-            ConstValue::Function(_) => {
-                // FIXME: Const tables should preserve the enviroment they
-                // expect, to allow for validation outside of the context of
-                // building the const table.
-            }
-            _ => {}
-        }
-    }
-    Ok(())
 }

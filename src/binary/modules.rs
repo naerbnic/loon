@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::util::imm_string::ImmString;
 
 use super::{
-    const_table::{validate_const_values, ConstValue},
+    const_table::{ConstIndex, ConstValue},
     error::ValidationError,
 };
 
@@ -42,6 +42,47 @@ impl ImportSource {
     }
 }
 
+/// Check that the constant values are valid, and return the set of constraints
+/// the table has to meet.
+pub fn validate_module(
+    table_elements: &[ConstValue],
+    _globals_size: u32,
+    imports_size: u32,
+) -> Result<(), ValidationError> {
+    let check_index = |index: &ConstIndex| {
+        match index {
+            ConstIndex::ModuleConst(i) => {
+                if *i >= table_elements.len() as u32 {
+                    return Err(ValidationError::LocalIndexResolutionError);
+                }
+            }
+            ConstIndex::ModuleImport(i) => {
+                if *i >= imports_size {
+                    return Err(ValidationError::LocalIndexResolutionError);
+                }
+            }
+        }
+        Ok(())
+    };
+
+    for value in table_elements {
+        match value {
+            ConstValue::List(list) => {
+                for index in list {
+                    check_index(index)?;
+                }
+            }
+            ConstValue::Function(_) => {
+                // FIXME: Const tables should preserve the enviroment they
+                // expect, to allow for validation outside of the context of
+                // building the const table.
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub struct ConstModule {
     /// The set of constants defined in this module. This const table must
     /// be fully defined, with no escaping local references, and globals
@@ -74,7 +115,7 @@ impl ConstModule {
         initializer: Option<u32>,
         global_table_size: u32,
     ) -> Result<Self, ValidationError> {
-        validate_const_values(&const_table, global_table_size, imports.len() as u32)?;
+        validate_module(&const_table, global_table_size, imports.len() as u32)?;
         Ok(ConstModule {
             const_table,
             imports,
