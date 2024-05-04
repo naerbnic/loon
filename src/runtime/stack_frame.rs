@@ -80,49 +80,40 @@ impl LocalStack {
             .get(index)
             .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range."))
     }
-}
-
-pub struct StackFrame {
-    inst_state: InstState,
-    local_consts: ValueTable,
-    module_globals: ModuleGlobals,
-    local_stack: LocalStack,
-}
-
-impl StackFrame {
-    pub fn new(
-        inst_list: Rc<InstEvalList>,
-        local_consts: ValueTable,
-        module_globals: ModuleGlobals,
-        args: Vec<Value>,
-    ) -> Self {
-        StackFrame {
-            inst_state: InstState::new(inst_list),
-            local_consts,
-            module_globals,
-            local_stack: LocalStack::from_args(args),
-        }
-    }
 
     pub fn read_args_from_stack(&mut self) -> Result<Vec<Value>> {
-        let arg_count_value = self.local_stack.pop()?;
+        let arg_count_value = self.pop()?;
         let arg_count = arg_count_value.as_compact_integer()?;
         let mut args = Vec::new();
         for _ in 0..arg_count {
-            args.push(self.local_stack.pop()?);
+            args.push(self.pop()?);
         }
         Ok(args)
     }
+}
 
-    pub fn step(&mut self, ctxt: &GlobalEnv) -> Result<Option<FrameChange>> {
+struct ManagedFrameState {
+    inst_state: InstState,
+    local_consts: ValueTable,
+    module_globals: ModuleGlobals,
+}
+
+impl ManagedFrameState {
+    pub fn step(
+        &mut self,
+        ctxt: &GlobalEnv,
+        local_stack: &mut LocalStack,
+    ) -> Result<Option<FrameChange>> {
         let inst_eval_ctxt = InstEvalContext::new(ctxt, &self.local_consts, &self.module_globals);
         let inst = self.inst_state.curr_inst();
-        let result = match inst.execute(&inst_eval_ctxt, &mut self.local_stack)? {
+        let result = match inst.execute(&inst_eval_ctxt, local_stack)? {
             InstructionResult::Next(target) => {
                 self.inst_state.update_pc(target)?;
                 None
             }
-            InstructionResult::Return => Some(FrameChange::Return(self.read_args_from_stack()?)),
+            InstructionResult::Return => {
+                Some(FrameChange::Return(local_stack.read_args_from_stack()?))
+            }
             InstructionResult::Call(func_call) => {
                 let function = func_call.function().clone();
                 let args = func_call.args().to_vec();
@@ -134,11 +125,52 @@ impl StackFrame {
         Ok(result)
     }
 
-    pub fn run_to_frame_change(&mut self, ctxt: &GlobalEnv) -> Result<FrameChange> {
+    pub fn run_to_frame_change(
+        &mut self,
+        ctxt: &GlobalEnv,
+        local_stack: &mut LocalStack,
+    ) -> Result<FrameChange> {
         loop {
-            if let Some(result) = self.step(ctxt)? {
+            if let Some(result) = self.step(ctxt, local_stack)? {
                 return Ok(result);
             }
+        }
+    }
+}
+
+struct NativeFrameState {}
+
+enum FrameState {
+    Managed(ManagedFrameState),
+    Native(NativeFrameState),
+}
+
+pub struct StackFrame {
+    frame_state: FrameState,
+    local_stack: LocalStack,
+}
+
+impl StackFrame {
+    pub fn new(
+        inst_list: Rc<InstEvalList>,
+        local_consts: ValueTable,
+        module_globals: ModuleGlobals,
+        args: Vec<Value>,
+    ) -> Self {
+        StackFrame {
+            frame_state: FrameState::Managed(ManagedFrameState {
+                inst_state: InstState::new(inst_list),
+                local_consts,
+                module_globals,
+            }),
+            local_stack: LocalStack::from_args(args),
+        }
+    }
+
+    pub fn run_to_frame_change(&mut self, ctxt: &GlobalEnv) -> Result<FrameChange> {
+        match &mut self.frame_state {
+            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &mut self.local_stack),
+            FrameState::Native(_) => todo!(),
         }
     }
 
