@@ -3,7 +3,8 @@ use std::rc::Rc;
 use crate::{
     refs::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
-        error::RuntimeError, instructions::InstEvalList, stack_frame::StackFrame, value::Value,
+        error::RuntimeError, instructions::InstEvalList, modules::ModuleGlobals,
+        stack_frame::StackFrame, value::Value,
     },
 };
 
@@ -23,8 +24,12 @@ pub enum Function {
 }
 
 impl Function {
-    pub fn new_managed(consts: Vec<Value>, inst_list: Rc<InstEvalList>) -> Self {
-        Function::Managed(ManagedFunction::new(Rc::new(consts), inst_list))
+    pub fn new_managed(
+        global: ModuleGlobals,
+        consts: Vec<Value>,
+        inst_list: Rc<InstEvalList>,
+    ) -> Self {
+        Function::Managed(ManagedFunction::new(global, Rc::new(consts), inst_list))
     }
 
     pub fn make_stack_frame(&self, args: Vec<Value>) -> Result<StackFrame, RuntimeError> {

@@ -106,34 +106,35 @@ impl GlobalContext {
     }
 }
 
-pub struct ConstResolutionContext {
-    global_context: GlobalContext,
-    import_environment: ModuleImportEnvironment,
+pub struct ConstResolutionContext<'a> {
+    global_context: &'a GlobalContext,
+    module_globals: &'a ModuleGlobals,
+    import_environment: &'a ModuleImportEnvironment,
 }
 
-impl ConstResolutionContext {
-    pub fn new(global_context: GlobalContext) -> Self {
-        ConstResolutionContext {
-            global_context,
-            import_environment: ModuleImportEnvironment::new(vec![]),
-        }
-    }
-    pub fn new_with_imports(
-        global_context: GlobalContext,
-        import_environment: ModuleImportEnvironment,
+impl<'a> ConstResolutionContext<'a> {
+    pub fn new(
+        global_context: &'a GlobalContext,
+        module_globals: &'a ModuleGlobals,
+        import_environment: &'a ModuleImportEnvironment,
     ) -> Self {
         ConstResolutionContext {
             global_context,
+            module_globals,
             import_environment,
         }
     }
 
     pub fn global_context(&self) -> &GlobalContext {
-        &self.global_context
+        self.global_context
+    }
+
+    pub fn module_globals(&self) -> &ModuleGlobals {
+        self.module_globals
     }
 
     pub fn import_environment(&self) -> &ModuleImportEnvironment {
-        &self.import_environment
+        self.import_environment
     }
 }
 

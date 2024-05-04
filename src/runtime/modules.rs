@@ -14,6 +14,7 @@ use super::{
     value::Value,
 };
 
+#[derive(Clone)]
 pub struct ModuleGlobals(Rc<Vec<RefCell<Option<Value>>>>);
 
 impl ModuleGlobals {
@@ -67,10 +68,10 @@ impl Module {
             .iter()
             .map(|id| ctxt.get_import(id))
             .collect::<Result<Vec<_>>>()?;
-        let import_env = ModuleImportEnvironment::new(import_values);
-        let const_ctxt = ConstResolutionContext::new_with_imports(ctxt.clone(), import_env);
-        let members = ValueTable::from_binary(module.const_table(), &const_ctxt)?;
         let module_globals = ModuleGlobals::from_size_empty(module.global_table_size());
+        let import_env = ModuleImportEnvironment::new(import_values);
+        let const_ctxt = ConstResolutionContext::new(ctxt, &module_globals, &import_env);
+        let members = ValueTable::from_binary(module.const_table(), &const_ctxt)?;
         // The module is already initialized if there is no initializer to run.
         let is_initialized = module.initializer().is_none();
         Ok(Module(Rc::new(Inner {

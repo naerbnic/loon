@@ -113,6 +113,7 @@ impl ConstLoader for ConstValue {
                         resolved_func_consts.push(index.resolve(imports, vs)?);
                     }
                     resolve_fn(Function::new_managed(
+                        ctxt.module_globals().clone(),
                         resolved_func_consts,
                         Rc::new(
                             ctxt.global_context()
