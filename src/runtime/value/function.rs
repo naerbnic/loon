@@ -4,7 +4,8 @@ use crate::{
     refs::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable,
-        error::RuntimeError,
+        context::GlobalEnv,
+        error::{Result, RuntimeError},
         instructions::InstEvalList,
         modules::ModuleGlobals,
         stack_frame::{LocalStack, StackFrame},
@@ -17,39 +18,18 @@ use self::managed::ManagedFunction;
 pub mod managed;
 pub mod native;
 
-pub struct Closure {
-    function: GcRef<Function>,
-    captured_values: Vec<Value>,
-}
-
-pub(crate) enum Function {
+pub enum BaseFunction {
     Managed(ManagedFunction),
-    Closure(Closure),
 }
 
-impl Function {
-    pub fn new_managed(
-        global: ModuleGlobals,
-        consts: ValueTable,
-        inst_list: Rc<InstEvalList>,
-    ) -> Self {
-        Function::Managed(ManagedFunction::new(global, consts, inst_list))
-    }
-
-    pub fn new_closure(function: GcRef<Function>, captured_values: Vec<Value>) -> Self {
-        Function::Closure(Closure {
-            function,
-            captured_values,
-        })
-    }
-
+impl BaseFunction {
     pub fn make_stack_frame(
         &self,
         args: impl IntoIterator<Item = Value>,
         mut local_stack: LocalStack,
-    ) -> Result<StackFrame, RuntimeError> {
+    ) -> Result<StackFrame> {
         match self {
-            Function::Managed(managed_func) => {
+            BaseFunction::Managed(managed_func) => {
                 local_stack.push_iter(args);
                 Ok(StackFrame::new(
                     managed_func.inst_list().clone(),
@@ -58,14 +38,84 @@ impl Function {
                     local_stack,
                 ))
             }
-            Function::Closure(closure) => {
+        }
+    }
+}
+
+impl GcTraceable for BaseFunction {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        match self {
+            BaseFunction::Managed(managed_func) => managed_func.trace(visitor),
+        }
+    }
+}
+
+pub struct Closure {
+    function: GcRef<BaseFunction>,
+    captured_values: Vec<Value>,
+}
+
+impl GcTraceable for Closure {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        visitor.visit(&self.function);
+        for value in self.captured_values.iter() {
+            value.trace(visitor);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum Function {
+    Base(GcRef<BaseFunction>),
+    Closure(GcRef<Closure>),
+}
+
+impl Function {
+    pub fn new_managed_deferred(
+        global_env: &GlobalEnv,
+        global: ModuleGlobals,
+        inst_list: Rc<InstEvalList>,
+    ) -> (Self, impl FnOnce(ValueTable)) {
+        let (base_func_value, resolve_fn) = global_env.create_deferred_ref();
+
+        (Function::Base(base_func_value), |value_table| {
+            resolve_fn(BaseFunction::Managed(ManagedFunction::new(
+                global,
+                value_table,
+                inst_list,
+            )));
+        })
+    }
+
+    pub fn new_closure(
+        global_env: &GlobalEnv,
+        function: GcRef<BaseFunction>,
+        captured_values: Vec<Value>,
+    ) -> Self {
+        Function::Closure(global_env.create_ref(Closure {
+            function,
+            captured_values,
+        }))
+    }
+
+    pub fn make_stack_frame(
+        &self,
+        args: impl IntoIterator<Item = Value>,
+        mut local_stack: LocalStack,
+    ) -> Result<StackFrame> {
+        match self {
+            Function::Base(base) => {
+                base.with(|managed_func| managed_func.make_stack_frame(args, local_stack))
+            }
+            Function::Closure(closure) => closure.with(|closure| {
                 local_stack.push_iter(closure.captured_values.iter().cloned());
-                let args: Vec<_> = closure
-                    .captured_values
-                    .iter()
-                    .cloned()
-                    .chain(args)
-                    .collect();
+                let args = closure.captured_values.iter().cloned().chain(args);
                 let stack_frame = closure
                     .function
                     .try_with(move |f| f.make_stack_frame(args, local_stack))
@@ -73,7 +123,7 @@ impl Function {
                         RuntimeError::new_internal_error("Function is not available.")
                     })??;
                 Ok(stack_frame)
-            }
+            }),
         }
     }
 }
@@ -84,13 +134,8 @@ impl GcTraceable for Function {
         V: GcRefVisitor,
     {
         match self {
-            Function::Managed(_) => {}
-            Function::Closure(closure) => {
-                for value in closure.captured_values.iter() {
-                    value.trace(visitor);
-                }
-                visitor.visit(&closure.function);
-            }
+            Function::Base(base) => visitor.visit(base),
+            Function::Closure(closure) => visitor.visit(closure),
         }
     }
 }

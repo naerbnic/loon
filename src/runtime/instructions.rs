@@ -1,7 +1,5 @@
 use std::rc::Rc;
 
-use crate::refs::GcRef;
-
 use super::{
     context::InstEvalContext, error::RuntimeError, stack_frame::LocalStack, value::Function,
 };
@@ -13,13 +11,13 @@ pub enum InstructionTarget {
 }
 
 pub struct FunctionCallResult {
-    function: GcRef<Function>,
+    function: Function,
     num_args: u32,
     return_target: InstructionTarget,
 }
 
 impl FunctionCallResult {
-    pub fn new(function: GcRef<Function>, num_args: u32, return_target: InstructionTarget) -> Self {
+    pub fn new(function: Function, num_args: u32, return_target: InstructionTarget) -> Self {
         FunctionCallResult {
             function,
             num_args,
@@ -27,7 +25,7 @@ impl FunctionCallResult {
         }
     }
 
-    pub fn function(&self) -> &GcRef<Function> {
+    pub fn function(&self) -> &Function {
         &self.function
     }
 
@@ -107,7 +105,7 @@ impl FromIterator<InstPtr> for InstEvalList {
 }
 
 pub struct CallStepResult {
-    pub function: GcRef<Function>,
+    pub function: Function,
     pub num_args: u32,
 }
 

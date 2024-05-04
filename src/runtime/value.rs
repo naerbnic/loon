@@ -26,7 +26,7 @@ pub(crate) enum Value {
     Bool(bool),
     String(ImmString),
     List(GcRef<List>),
-    Function(GcRef<Function>),
+    Function(Function),
 }
 
 impl Value {
@@ -46,7 +46,7 @@ impl Value {
         }
     }
 
-    pub fn as_function(&self) -> Result<&GcRef<Function>, RuntimeError> {
+    pub fn as_function(&self) -> Result<&Function, RuntimeError> {
         match self {
             Value::Function(f) => Ok(f),
             _ => Err(RuntimeError::new_type_error("Value is not a function.")),
@@ -85,7 +85,7 @@ impl GcTraceable for Value {
         match self {
             Value::Integer(_) | Value::Float(_) | Value::String(_) | Value::Bool(_) => {}
             Value::List(l) => visitor.visit(l),
-            Value::Function(f) => visitor.visit(f),
+            Value::Function(f) => f.trace(visitor),
         }
     }
 }
@@ -114,7 +114,14 @@ impl ConstLoader for ConstValue {
                 (Value::List(deferred), Some(resolver))
             }
             ConstValue::Function(const_func) => {
-                let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
+                let (deferred, resolve_fn) = Function::new_managed_deferred(
+                    ctxt.global_context(),
+                    ctxt.module_globals().clone(),
+                    Rc::new(
+                        ctxt.global_context()
+                            .resolve_instructions(const_func.instructions())?,
+                    ),
+                );
                 let resolver: ResolveFunc = Box::new(move |imports, vs| {
                     let module_constants = const_func.module_constants();
                     let mut resolved_func_consts =
@@ -122,14 +129,7 @@ impl ConstLoader for ConstValue {
                     for index in module_constants {
                         resolved_func_consts.push(index.resolve(imports, vs)?);
                     }
-                    resolve_fn(Function::new_managed(
-                        ctxt.module_globals().clone(),
-                        ValueTable::from_values(resolved_func_consts),
-                        Rc::new(
-                            ctxt.global_context()
-                                .resolve_instructions(const_func.instructions())?,
-                        ),
-                    ));
+                    resolve_fn(ValueTable::from_values(resolved_func_consts));
                     Ok(())
                 });
                 (Value::Function(deferred), Some(resolver))

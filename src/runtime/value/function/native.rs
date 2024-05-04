@@ -2,20 +2,17 @@
 
 use std::rc::Rc;
 
-use crate::{
-    refs::GcRef,
-    runtime::{context::GlobalEnv, error::Result, stack_frame::LocalStack, EvalContext},
-};
+use crate::runtime::{context::GlobalEnv, error::Result, stack_frame::LocalStack, EvalContext};
 
 use super::Function;
 
 pub struct TailCall {
-    function: GcRef<Function>,
+    function: Function,
     num_args: u32,
 }
 
 pub struct CallWithContinuation {
-    function: GcRef<Function>,
+    function: Function,
     num_args: u32,
     continuation: NativeFunctionPtr,
 }

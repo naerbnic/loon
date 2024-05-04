@@ -1,4 +1,4 @@
-use crate::{binary::instructions::StackIndex, pure_values::Integer, refs::GcRef};
+use crate::{binary::instructions::StackIndex, pure_values::Integer};
 
 use self::{
     context::GlobalEnv,
@@ -60,10 +60,9 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    fn run(&mut self, function: GcRef<Function>, num_args: u32) -> Result<u32> {
-        let stack_frame = function.with_mut(|func| {
-            func.make_stack_frame(self.parent_stack.drain_top_n(num_args)?, LocalStack::new())
-        })?;
+    fn run(&mut self, function: Function, num_args: u32) -> Result<u32> {
+        let stack_frame = function
+            .make_stack_frame(self.parent_stack.drain_top_n(num_args)?, LocalStack::new())?;
         self.call_stack.push(stack_frame);
         loop {
             let frame = self.call_stack.last_mut().unwrap();
@@ -84,8 +83,7 @@ impl<'a> EvalContext<'a> {
                 instructions::FrameChange::Call(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame =
-                        function.with_mut(|f| f.make_stack_frame(args, LocalStack::new()))?;
+                    let stack_frame = function.make_stack_frame(args, LocalStack::new())?;
                     self.call_stack.push(stack_frame);
                 }
             }
