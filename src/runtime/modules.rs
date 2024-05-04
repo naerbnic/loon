@@ -58,10 +58,7 @@ struct Inner {
 pub struct Module(Rc<Inner>);
 
 impl Module {
-    pub fn from_binary(
-        ctxt: &GlobalEnv,
-        module: &binary::modules::ConstModule,
-    ) -> Result<Self> {
+    pub fn from_binary(ctxt: &GlobalEnv, module: &binary::modules::ConstModule) -> Result<Self> {
         // Resolve imports
         let import_values = module
             .imports()

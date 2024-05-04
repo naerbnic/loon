@@ -1,17 +1,23 @@
 use std::rc::Rc;
 
 use crate::{
-    binary::ConstValue, pure_values::{Float, Integer}, refs::{GcRef, GcRefVisitor, GcTraceable}, util::imm_string::ImmString
+    binary::ConstValue,
+    pure_values::{Float, Integer},
+    refs::{GcRef, GcRefVisitor, GcTraceable},
+    util::imm_string::ImmString,
 };
 
-use super::{constants::{ConstLoader, ResolveFunc, ValueTable}, context::ConstResolutionContext, error::RuntimeError};
+use super::{
+    constants::{ConstLoader, ResolveFunc, ValueTable},
+    context::ConstResolutionContext,
+    error::RuntimeError,
+};
 
 mod function;
 mod list;
 
 pub(crate) use function::Function;
 pub(crate) use list::List;
-
 
 #[derive(Clone)]
 pub(crate) enum Value {
