@@ -31,9 +31,12 @@ mod tests {
         global_env.load_module(module_id.clone(), &module)?;
 
         let mut top_level = TopLevelRuntime::new(global_env);
-        top_level.push_int(1);
-        top_level.push_int(2);
-        top_level.push_import(&ImportSource::new(module_id.clone(), member_id.clone()))?;
+        {
+            let mut stack = top_level.stack();
+            stack.push_int(1);
+            stack.push_int(2);
+            stack.push_import(&ImportSource::new(module_id.clone(), member_id.clone()))?;
+        }
         let num_args = top_level.call_function(2)?;
         assert_eq!(num_args, 1);
         assert_eq!(Integer::from(3), top_level.get_int(StackIndex::FromTop(0))?);

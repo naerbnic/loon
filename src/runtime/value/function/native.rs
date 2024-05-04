@@ -1,53 +1,76 @@
 #![allow(dead_code)]
 
-use crate::runtime::value::Value;
+use std::rc::Rc;
+
+use crate::{
+    refs::GcRef,
+    runtime::{
+        context::GlobalEnv, error::Result, stack_frame::LocalStack, value::Value, EvalContext,
+    },
+};
+
+use super::Function;
 
 pub struct TailCall {
-    function: Value,
-    args: Vec<Value>,
+    function: GcRef<Function>,
+    num_args: u32,
 }
 
 pub struct CallWithContinuation {
-    function: Value,
-    args: Vec<Value>,
-    continuation: Value,
+    function: GcRef<Function>,
+    num_args: u32,
+    continuation: NativeFunctionPtr,
 }
 
 pub enum NativeFunctionResult {
-    ReturnValue(Vec<Value>),
+    ReturnValue(u32),
     TailCall(TailCall),
     CallWithContinuation(CallWithContinuation),
 }
 
-pub struct NativeFunctionContext();
+pub struct NativeFunctionContext<'a> {
+    global_context: &'a GlobalEnv,
+    local_stack: &'a mut LocalStack,
+}
 
-impl NativeFunctionContext {
-    pub fn call(&self, _function: Value, _args: &[Value]) -> Vec<Value> {
-        todo!()
+impl<'a> NativeFunctionContext<'a> {
+    pub fn call(&mut self, num_args: u32) -> Result<u32> {
+        let function = self.local_stack.pop()?.as_function()?.clone();
+        let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
+        eval_context.run(function, num_args)
     }
 
-    pub fn return_with(self, values: Vec<Value>) -> NativeFunctionResult {
-        NativeFunctionResult::ReturnValue(values)
+    pub fn return_with(self, num_args: u32) -> NativeFunctionResult {
+        NativeFunctionResult::ReturnValue(num_args)
     }
 
-    pub fn tail_call(self, function: Value, args: Vec<Value>) -> NativeFunctionResult {
-        NativeFunctionResult::TailCall(TailCall { function, args })
+    pub fn tail_call(self, num_args: u32) -> Result<NativeFunctionResult> {
+        let function = self.local_stack.pop()?.as_function()?.clone();
+        Ok(NativeFunctionResult::TailCall(TailCall {
+            function,
+            num_args,
+        }))
     }
 
     pub fn call_with_continuation(
         self,
-        function: Value,
-        args: Vec<Value>,
-        continuation: Value,
-    ) -> NativeFunctionResult {
-        NativeFunctionResult::CallWithContinuation(CallWithContinuation {
-            function,
-            args,
-            continuation,
-        })
+        num_args: u32,
+        continuation: NativeFunctionPtr,
+    ) -> Result<NativeFunctionResult> {
+        let function = self.local_stack.pop()?.as_function()?.clone();
+        Ok(NativeFunctionResult::CallWithContinuation(
+            CallWithContinuation {
+                function,
+                num_args,
+                continuation,
+            },
+        ))
     }
 }
 
 pub trait NativeFunction {
-    fn call(&self, ctxt: NativeFunctionContext, args: &[Value]) -> NativeFunctionResult;
+    fn call(&self, ctxt: NativeFunctionContext) -> Result<NativeFunctionResult>;
 }
+
+#[derive(Clone)]
+pub struct NativeFunctionPtr(Rc<dyn NativeFunction>);

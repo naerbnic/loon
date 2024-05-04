@@ -51,7 +51,7 @@ impl Function {
                 args,
             )),
             Function::Closure(closure) => {
-                let args = closure.captured_values.iter().cloned().chain(args);
+                let args: Vec<_> = closure.captured_values.iter().cloned().chain(args).collect();
                 let stack_frame = closure
                     .function
                     .try_with(move |f| f.make_stack_frame(args))

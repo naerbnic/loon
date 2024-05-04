@@ -1,6 +1,10 @@
 use std::rc::Rc;
 
-use crate::binary::instructions::StackIndex;
+use crate::{
+    binary::{instructions::StackIndex, modules::ImportSource},
+    pure_values::Integer,
+    util::imm_string::ImmString,
+};
 
 use super::{
     constants::ValueTable,
@@ -10,7 +14,7 @@ use super::{
         CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
     },
     modules::ModuleGlobals,
-    value::Value,
+    value::{List, Value},
 };
 
 struct InstState {
@@ -94,6 +98,63 @@ impl LocalStack {
     }
 }
 
+pub struct StackContext<'a> {
+    global_context: &'a GlobalEnv,
+    stack: &'a mut LocalStack,
+}
+
+impl<'a> StackContext<'a> {
+    pub(crate) fn new(global_context: &'a GlobalEnv, stack: &'a mut LocalStack) -> Self {
+        StackContext {
+            global_context,
+            stack,
+        }
+    }
+    pub fn push_import(&mut self, source: &ImportSource) -> Result<()> {
+        let value = self.global_context.get_import(source)?;
+        self.stack.push(value);
+        Ok(())
+    }
+
+    pub fn push_bool(&mut self, value: bool) {
+        self.stack.push(Value::Bool(value));
+    }
+
+    pub fn push_int(&mut self, value: impl Into<Integer>) {
+        self.stack.push(Value::Integer(value.into()));
+    }
+
+    pub fn push_float(&mut self, value: f64) {
+        self.stack.push(Value::Float(value.into()));
+    }
+
+    pub fn push_string(&mut self, value: impl AsRef<str>) {
+        self.stack
+            .push(Value::String(ImmString::from_str(value.as_ref())));
+    }
+
+    pub fn make_list(&mut self, size: usize) -> Result<()> {
+        let mut list = Vec::with_capacity(size);
+        for _ in 0..size {
+            list.push(self.stack.pop()?);
+        }
+        // FIXME: Which direction should the list be from the stack?
+        // Current here is from first push to last.
+        list.reverse();
+        self.stack.push(Value::List(
+            self.global_context.create_ref(List::from_iter(list)),
+        ));
+        Ok(())
+    }
+
+    pub fn pop_n(&mut self, n: usize) -> Result<()> {
+        for _ in 0..n {
+            self.stack.pop()?;
+        }
+        Ok(())
+    }
+}
+
 struct ManagedFrameState {
     inst_state: InstState,
     local_consts: ValueTable,
@@ -142,6 +203,16 @@ impl ManagedFrameState {
 
 struct NativeFrameState {}
 
+impl NativeFrameState {
+    pub fn run_to_frame_change(
+        &mut self,
+        _ctxt: &GlobalEnv,
+        _local_stack: &mut LocalStack,
+    ) -> Result<FrameChange> {
+        todo!()
+    }
+}
+
 enum FrameState {
     Managed(ManagedFrameState),
     Native(NativeFrameState),
@@ -172,7 +243,7 @@ impl StackFrame {
     pub fn run_to_frame_change(&mut self, ctxt: &GlobalEnv) -> Result<FrameChange> {
         match &mut self.frame_state {
             FrameState::Managed(state) => state.run_to_frame_change(ctxt, &mut self.local_stack),
-            FrameState::Native(_) => todo!(),
+            FrameState::Native(state) => state.run_to_frame_change(ctxt, &mut self.local_stack),
         }
     }
 
