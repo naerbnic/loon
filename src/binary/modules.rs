@@ -2,7 +2,10 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::util::imm_string::ImmString;
 
-use super::const_table::ConstValue;
+use super::{
+    const_table::{validate_const_values, ConstValue},
+    error::ValidationError,
+};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ModuleId(Rc<Vec<ImmString>>);
@@ -70,14 +73,15 @@ impl ConstModule {
         exports: HashMap<ModuleMemberId, u32>,
         initializer: Option<u32>,
         global_table_size: u32,
-    ) -> Self {
-        ConstModule {
+    ) -> Result<Self, ValidationError> {
+        validate_const_values(&const_table, global_table_size, imports.len() as u32)?;
+        Ok(ConstModule {
             const_table,
             imports,
             exports,
             initializer,
             global_table_size,
-        }
+        })
     }
     pub fn const_table(&self) -> &[ConstValue] {
         &self.const_table
