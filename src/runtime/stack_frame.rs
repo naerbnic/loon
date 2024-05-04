@@ -30,7 +30,7 @@ impl InstState {
     pub fn update_pc(&mut self, pc: InstructionTarget) -> Result<()> {
         let next_pc = match pc {
             InstructionTarget::Step => self.pc + 1,
-            InstructionTarget::Branch(i) => i,
+            InstructionTarget::Branch(i) => usize::try_from(i).unwrap(),
         };
         if next_pc >= self.inst_list.len() {
             return Err(RuntimeError::new_operation_precondition_error(

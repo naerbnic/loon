@@ -9,7 +9,7 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub enum InstructionTarget {
     Step,
-    Branch(usize),
+    Branch(u32),
 }
 
 pub struct FunctionCallResult {

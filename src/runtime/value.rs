@@ -39,6 +39,13 @@ impl Value {
         }
     }
 
+    pub fn as_bool(&self) -> Result<bool, RuntimeError> {
+        match self {
+            Value::Bool(b) => Ok(*b),
+            _ => Err(RuntimeError::new_type_error("Value is not a boolean.")),
+        }
+    }
+
     pub fn as_function(&self) -> Result<&GcRef<Function>, RuntimeError> {
         match self {
             Value::Function(f) => Ok(f),
