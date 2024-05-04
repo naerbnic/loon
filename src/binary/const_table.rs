@@ -14,48 +14,6 @@ use crate::{
 
 use super::instructions::InstructionList;
 
-/// An index of a constant in the layers of constant values.
-///
-/// The layer is relative to the current context, with 0 being the current
-/// context, 1 being the parent context, and so on.
-///
-/// The index is the index in the specified layer's values.
-#[derive(Clone, Debug)]
-pub struct LayerIndex {
-    layer: usize,
-    index: usize,
-}
-
-impl LayerIndex {
-    pub fn new(layer: usize, index: usize) -> Self {
-        LayerIndex { layer, index }
-    }
-
-    #[cfg(test)]
-    pub fn new_in_base(index: usize) -> Self {
-        LayerIndex { layer: 0, index }
-    }
-
-    pub fn layer(&self) -> usize {
-        self.layer
-    }
-
-    pub fn index(&self) -> usize {
-        self.index
-    }
-
-    pub fn in_prev_layer(&self) -> Option<Self> {
-        if self.layer > 0 {
-            Some(LayerIndex {
-                layer: self.layer - 1,
-                index: self.index,
-            })
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub enum ConstIndex {
     /// An index into the stack of constant tables.

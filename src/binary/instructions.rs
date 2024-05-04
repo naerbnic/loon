@@ -15,11 +15,6 @@ use super::error::Result;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Opcode(ImmString);
 
-#[derive(Clone, Debug)]
-pub enum InstArg {
-    Integer(u32),
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum StackIndex {
     FromTop(u32),
@@ -165,7 +160,7 @@ impl InstructionListBuilder {
     inst_builder!(bool_xor, BoolXor);
     inst_builder!(bool_not, BoolNot);
     inst_builder!(compare, Compare(op: CompareOp));
-    inst_builder!(branch, Branch(target: BranchTarget));
+    // inst_builder!(branch, Branch(target: BranchTarget));
     inst_builder!(call, Call(call: CallInstruction));
     inst_builder!(call_dynamic, CallDynamic);
     inst_builder!(return_, Return(n: u32));

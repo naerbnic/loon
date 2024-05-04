@@ -275,8 +275,6 @@ impl Drop for DeferredValue {
     }
 }
 
-pub struct BranchTarget();
-
 pub struct FunctionBuilder {
     /// The value reference for the deferred function being built.
     value_ref: ValueRef,
@@ -309,6 +307,8 @@ impl FunctionBuilder {
 
     def_build_inst_method!(add());
     def_build_inst_method!(push_copy(s: StackIndex));
+    def_build_inst_method!(push_global(index: u32));
+    def_build_inst_method!(pop_global(index: u32));
     def_build_inst_method!(pop(n: u32));
     def_build_inst_method!(bool_and());
     def_build_inst_method!(bool_or());

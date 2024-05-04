@@ -1,7 +1,7 @@
-pub mod builders;
-pub mod const_table;
-pub mod instructions;
-pub mod modules;
-pub mod object;
-pub mod symbols;
-pub mod error;
+pub(crate) mod builders;
+pub(crate) mod const_table;
+pub(crate) mod error;
+pub(crate) mod instructions;
+pub(crate) mod modules;
+
+pub use builders::{DeferredValue, FunctionBuilder, ModuleBuilder, ValueRef};
