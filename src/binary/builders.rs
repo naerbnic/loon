@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    binary::const_table::validate_const_values,
     pure_values::{Float, Integer},
     util::imm_string::ImmString,
 };
@@ -133,6 +134,7 @@ impl InnerRc {
                     .clone(),
             );
         }
+        validate_const_values(&result, inner.num_globals, inner.imports.len() as u32)?;
         let const_table = ConstTable::new(result).expect("Failed to create const table.");
         Ok(ConstModule::new(
             const_table,

@@ -12,7 +12,7 @@ use crate::{
     util::imm_string::ImmString,
 };
 
-use super::instructions::InstructionList;
+use super::{error::ValidationError, instructions::InstructionList};
 
 /// An index of a constant in the layers of constant values.
 ///
@@ -171,41 +171,34 @@ impl ConstLoader for ConstValue {
     }
 }
 
-#[derive(thiserror::Error, Debug, Clone)]
-pub enum ConstValidationError {
-    #[error("Found an invalid constant index")]
-    LocalIndexResolutionError,
-}
-
 /// Check that the constant values are valid, and return the set of constraints
 /// the table has to meet.
-fn collect_constraints(
+pub fn validate_const_values(
     table_elements: &[ConstValue],
-) -> Result<ConstConstraints, ConstValidationError> {
-    fn add_local_constraint(
-        constraints: &mut ConstConstraints,
-        curr_layer_size: usize,
-        layer_index: &ConstIndex,
-    ) -> Result<(), ConstValidationError> {
-        match layer_index {
-            ConstIndex::ModuleConst(index) => {
-                if curr_layer_size <= usize::try_from(*index).unwrap() {
-                    return Err(ConstValidationError::LocalIndexResolutionError);
+    globals_size: u32,
+    imports_size: u32,
+) -> Result<(), ValidationError> {
+    let check_index = |index: &ConstIndex| {
+        match index {
+            ConstIndex::ModuleConst(i) => {
+                if *i >= globals_size {
+                    return Err(ValidationError::LocalIndexResolutionError);
                 }
             }
-            ConstIndex::ModuleImport(global) => {
-                constraints.absorb_constraint(&ConstIndex::ModuleImport(*global));
+            ConstIndex::ModuleImport(i) => {
+                if *i >= imports_size {
+                    return Err(ValidationError::LocalIndexResolutionError);
+                }
             }
         }
         Ok(())
-    }
+    };
 
-    let mut constraints = ConstConstraints::new();
     for value in table_elements {
         match value {
             ConstValue::List(list) => {
                 for index in list {
-                    add_local_constraint(&mut constraints, table_elements.len(), index)?;
+                    check_index(index)?;
                 }
             }
             ConstValue::Function(_) => {
@@ -216,57 +209,22 @@ fn collect_constraints(
             _ => {}
         }
     }
-    Ok(constraints)
-}
-
-#[derive(Debug)]
-pub struct ConstConstraints {
-    module_index_constraint: u32,
-}
-
-impl ConstConstraints {
-    pub fn new() -> Self {
-        ConstConstraints {
-            module_index_constraint: 0,
-        }
-    }
-
-    pub fn absorb_constraint(&mut self, index: &ConstIndex) {
-        match index {
-            ConstIndex::ModuleConst(_index) => {}
-            ConstIndex::ModuleImport(import_index) => {
-                self.module_index_constraint = self.module_index_constraint.max(*import_index);
-            }
-        }
-    }
-}
-
-impl Default for ConstConstraints {
-    fn default() -> Self {
-        Self::new()
-    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
 pub struct ConstTable {
     entries: Rc<Vec<ConstValue>>,
-    constraints: Rc<ConstConstraints>,
 }
 
 impl ConstTable {
-    pub fn new(values: Vec<ConstValue>) -> Result<Self, ConstValidationError> {
-        let constraints = collect_constraints(&values)?;
+    pub fn new(values: Vec<ConstValue>) -> Result<Self, ValidationError> {
         Ok(ConstTable {
-            constraints: Rc::new(constraints),
             entries: Rc::new(values),
         })
     }
 
     pub fn values(&self) -> &[ConstValue] {
         &self.entries
-    }
-
-    pub fn constraints(&self) -> &ConstConstraints {
-        &self.constraints
     }
 }
