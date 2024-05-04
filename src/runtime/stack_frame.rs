@@ -55,12 +55,6 @@ impl LocalStack {
         LocalStack { stack: Vec::new() }
     }
 
-    pub fn from_args(args: impl IntoIterator<Item = Value>) -> Self {
-        LocalStack {
-            stack: args.into_iter().collect(),
-        }
-    }
-
     pub fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
@@ -228,7 +222,7 @@ impl StackFrame {
         inst_list: Rc<InstEvalList>,
         local_consts: ValueTable,
         module_globals: ModuleGlobals,
-        args: impl IntoIterator<Item = Value>,
+        local_stack: LocalStack,
     ) -> Self {
         StackFrame {
             frame_state: FrameState::Managed(ManagedFrameState {
@@ -236,7 +230,7 @@ impl StackFrame {
                 local_consts,
                 module_globals,
             }),
-            local_stack: LocalStack::from_args(args),
+            local_stack,
         }
     }
 

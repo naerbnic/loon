@@ -4,7 +4,7 @@ use crate::{
     refs::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable, error::RuntimeError, instructions::InstEvalList,
-        modules::ModuleGlobals, stack_frame::StackFrame, value::Value,
+        modules::ModuleGlobals, stack_frame::{LocalStack, StackFrame}, value::Value,
     },
 };
 
@@ -42,19 +42,21 @@ impl Function {
     pub fn make_stack_frame(
         &self,
         args: impl IntoIterator<Item = Value>,
+        mut local_stack: LocalStack,
     ) -> Result<StackFrame, RuntimeError> {
         match self {
             Function::Managed(managed_func) => Ok(StackFrame::new(
                 managed_func.inst_list().clone(),
                 managed_func.constants().clone(),
                 managed_func.globals().clone(),
-                args,
+                local_stack,
             )),
             Function::Closure(closure) => {
+                local_stack.push_iter(closure.captured_values.iter().cloned());
                 let args: Vec<_> = closure.captured_values.iter().cloned().chain(args).collect();
                 let stack_frame = closure
                     .function
-                    .try_with(move |f| f.make_stack_frame(args))
+                    .try_with(move |f| f.make_stack_frame(args, local_stack))
                     .ok_or_else(|| {
                         RuntimeError::new_internal_error("Function is not available.")
                     })??;

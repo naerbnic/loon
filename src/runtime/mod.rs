@@ -1,15 +1,10 @@
-use crate::{
-    binary::{instructions::StackIndex, modules::ImportSource},
-    pure_values::Integer,
-    refs::GcRef,
-    util::imm_string::ImmString,
-};
+use crate::{binary::instructions::StackIndex, pure_values::Integer, refs::GcRef};
 
 use self::{
     context::GlobalEnv,
     error::Result,
     stack_frame::{LocalStack, StackContext, StackFrame},
-    value::{Function, List, Value},
+    value::Function,
 };
 
 pub(super) mod constants;
@@ -66,12 +61,13 @@ impl<'a> EvalContext<'a> {
     }
 
     fn run(&mut self, function: GcRef<Function>, num_args: u32) -> Result<u32> {
-        let stack_frame = function
-            .with_mut(|func| func.make_stack_frame(self.parent_stack.drain_top_n(num_args)?))?;
+        let stack_frame = function.with_mut(|func| {
+            func.make_stack_frame(self.parent_stack.drain_top_n(num_args)?, LocalStack::new())
+        })?;
         self.call_stack.push(stack_frame);
         loop {
             let frame = self.call_stack.last_mut().unwrap();
-            match frame.run_to_frame_change(&self.global_context)? {
+            match frame.run_to_frame_change(self.global_context)? {
                 instructions::FrameChange::Return(num_returns) => {
                     let mut prev_frame = self.call_stack.pop().expect("Call stack is empty.");
                     match self.call_stack.last_mut() {
@@ -88,7 +84,8 @@ impl<'a> EvalContext<'a> {
                 instructions::FrameChange::Call(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame = function.with_mut(|f| f.make_stack_frame(args))?;
+                    let stack_frame =
+                        function.with_mut(|f| f.make_stack_frame(args, LocalStack::new()))?;
                     self.call_stack.push(stack_frame);
                 }
             }

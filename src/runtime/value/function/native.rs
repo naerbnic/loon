@@ -4,9 +4,7 @@ use std::rc::Rc;
 
 use crate::{
     refs::GcRef,
-    runtime::{
-        context::GlobalEnv, error::Result, stack_frame::LocalStack, value::Value, EvalContext,
-    },
+    runtime::{context::GlobalEnv, error::Result, stack_frame::LocalStack, EvalContext},
 };
 
 use super::Function;
