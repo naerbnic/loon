@@ -7,7 +7,8 @@ use super::{
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
     inst_set::{
-        Add, Branch, BranchIf, CallDynamic, Pop, PushConst, PushGlobal, ReturnDynamic, SetGlobal,
+        Add, Branch, BranchIf, CallDynamic, Pop, PushConst, PushCopy, PushGlobal, Return,
+        ReturnDynamic, SetGlobal,
     },
     instructions::{InstEvalList, InstPtr},
     modules::{Module, ModuleGlobals},
@@ -75,7 +76,7 @@ impl GlobalEnv {
             .map(|inst| {
                 Ok(match inst {
                     Instruction::PushConst(i) => InstPtr::new(PushConst::new(*i)),
-                    Instruction::PushCopy(_) => todo!(),
+                    Instruction::PushCopy(i) => InstPtr::new(PushCopy::new(*i)),
                     Instruction::PushGlobal(i) => InstPtr::new(PushGlobal::new(*i)),
                     Instruction::PopGlobal(i) => InstPtr::new(SetGlobal::new(*i)),
                     Instruction::Pop(i) => InstPtr::new(Pop::new(*i)),
@@ -89,7 +90,7 @@ impl GlobalEnv {
                     Instruction::BranchIf(target) => InstPtr::new(BranchIf::new(*target)),
                     Instruction::Call(_) => todo!(),
                     Instruction::CallDynamic => InstPtr::new(CallDynamic),
-                    Instruction::Return(_) => todo!(),
+                    Instruction::Return(i) => InstPtr::new(Return::new(*i)),
                     Instruction::ReturnDynamic => InstPtr::new(ReturnDynamic),
                 })
             })
