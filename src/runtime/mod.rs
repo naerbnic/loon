@@ -1,4 +1,4 @@
-use self::{context::GlobalContext, error::Result, stack_frame::StackFrame, value::Value};
+use self::{context::GlobalEnv, error::Result, stack_frame::StackFrame, value::Value};
 
 pub(super) mod constants;
 pub(super) mod context;
@@ -11,17 +11,17 @@ pub(super) mod stack_frame;
 pub(super) mod value;
 
 pub struct Runtime {
-    global_context: GlobalContext,
+    global_context: GlobalEnv,
     call_stack: Vec<StackFrame>,
 }
 
 impl Runtime {
     fn new_with_initial_stack_frame(
-        global_context: GlobalContext,
+        global_context: GlobalEnv,
         stack_frame: StackFrame,
     ) -> Self {
         Runtime {
-            global_context: GlobalContext::new(),
+            global_context: GlobalEnv::new(),
             call_stack: vec![stack_frame],
         }
     }

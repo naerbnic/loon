@@ -70,14 +70,14 @@ mod tests {
     use crate::{
         binary::const_table::{ConstIndex, ConstValue},
         pure_values::Float,
-        runtime::{context::GlobalContext, modules::ModuleGlobals},
+        runtime::{context::GlobalEnv, modules::ModuleGlobals},
     };
 
     use super::*;
 
     #[test]
     fn build_simple_values() {
-        let global_ctxt = GlobalContext::new();
+        let global_ctxt = GlobalEnv::new();
         let module_globals = ModuleGlobals::from_size_empty(0);
         let import_environment = ModuleImportEnvironment::new(vec![]);
         let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn build_composite_value() {
-        let global_ctxt = GlobalContext::new();
+        let global_ctxt = GlobalEnv::new();
         let module_globals = ModuleGlobals::from_size_empty(0);
         let import_environment = ModuleImportEnvironment::new(vec![]);
         let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);

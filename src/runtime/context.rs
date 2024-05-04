@@ -17,22 +17,22 @@ use crate::{
         instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
-    refs::{GcContext, GcRef, GcTraceable},
+    refs::{GcEnv, GcRef, GcTraceable},
 };
 
 struct Inner {
-    gc_context: GcContext,
+    gc_context: GcEnv,
     loaded_modules: RefCell<HashMap<ModuleId, Module>>,
 }
 
 #[derive(Clone)]
-pub struct GlobalContext(Rc<Inner>);
+pub struct GlobalEnv(Rc<Inner>);
 
-impl GlobalContext {
+impl GlobalEnv {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        GlobalContext(Rc::new(Inner {
-            gc_context: GcContext::new(),
+        GlobalEnv(Rc::new(Inner {
+            gc_context: GcEnv::new(),
             loaded_modules: RefCell::new(HashMap::new()),
         }))
     }
@@ -97,7 +97,7 @@ impl GlobalContext {
 }
 
 /// Crate internal methods for global context.
-impl GlobalContext {
+impl GlobalEnv {
     pub(crate) fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
     where
         T: GcTraceable + 'static,
@@ -107,14 +107,14 @@ impl GlobalContext {
 }
 
 pub struct ConstResolutionContext<'a> {
-    global_context: &'a GlobalContext,
+    global_context: &'a GlobalEnv,
     module_globals: &'a ModuleGlobals,
     import_environment: &'a ModuleImportEnvironment,
 }
 
 impl<'a> ConstResolutionContext<'a> {
     pub fn new(
-        global_context: &'a GlobalContext,
+        global_context: &'a GlobalEnv,
         module_globals: &'a ModuleGlobals,
         import_environment: &'a ModuleImportEnvironment,
     ) -> Self {
@@ -125,7 +125,7 @@ impl<'a> ConstResolutionContext<'a> {
         }
     }
 
-    pub fn global_context(&self) -> &GlobalContext {
+    pub fn global_context(&self) -> &GlobalEnv {
         self.global_context
     }
 
@@ -139,14 +139,14 @@ impl<'a> ConstResolutionContext<'a> {
 }
 
 pub struct InstEvalContext<'a> {
-    global_context: &'a GlobalContext,
+    global_context: &'a GlobalEnv,
     local_constants: &'a ValueTable,
     globals: &'a ModuleGlobals,
 }
 
 impl<'a> InstEvalContext<'a> {
     pub fn new(
-        global_context: &'a GlobalContext,
+        global_context: &'a GlobalEnv,
         local_constants: &'a ValueTable,
         globals: &'a ModuleGlobals,
     ) -> Self {

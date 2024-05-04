@@ -79,11 +79,11 @@ struct ContextInner {
 /// This object is responsible for generating `Ref<T>` objects that are managed
 /// by the garbage collector. Garbage collection happens only on demand
 /// through the `garbage_collect()` method.
-pub struct GcContext {
+pub struct GcEnv {
     inner: Rc<RefCell<ContextInner>>,
 }
 
-impl GcContext {
+impl GcEnv {
     /// Creates a new empty `GcContext`.
     pub fn new() -> Self {
         Self {
@@ -179,7 +179,7 @@ impl GcContext {
     }
 }
 
-impl Default for GcContext {
+impl Default for GcEnv {
     fn default() -> Self {
         Self::new()
     }
@@ -190,8 +190,8 @@ pub struct WeakRefContext {
 }
 
 impl WeakRefContext {
-    pub fn upgrade(&self) -> Option<GcContext> {
-        self.inner.upgrade().map(|inner| GcContext { inner })
+    pub fn upgrade(&self) -> Option<GcEnv> {
+        self.inner.upgrade().map(|inner| GcEnv { inner })
     }
 }
 
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_ref_works() {
-        let ctxt = GcContext::new();
+        let ctxt = GcEnv::new();
         let i_ref = ctxt.create_ref(4);
         let val = i_ref.with(|i| *i);
         assert_eq!(val, 4);
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_simple_gc() {
-        let ctxt = GcContext::new();
+        let ctxt = GcEnv::new();
         let i_ref = ctxt.create_ref(4);
         let mut roots = GcRoots::new();
         roots.add(&i_ref);
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_simple_gc_collect() {
-        let ctxt = GcContext::new();
+        let ctxt = GcEnv::new();
         let i_ref = ctxt.create_ref(4);
         ctxt.garbage_collect(&GcRoots::new());
         let val = i_ref.try_with_mut(|i| *i);
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn loop_collects() {
-        let ctxt = GcContext::new();
+        let ctxt = GcEnv::new();
         let (node1, drop1) = Node::new();
         let (node2, drop2) = Node::new();
         let (node2_ref, resolve_node2_ref) = ctxt.create_deferred_ref();

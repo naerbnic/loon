@@ -8,7 +8,7 @@ use crate::binary::{self, modules::ModuleMemberId};
 
 use super::{
     constants::ValueTable,
-    context::{ConstResolutionContext, GlobalContext},
+    context::{ConstResolutionContext, GlobalEnv},
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
     value::Value,
@@ -59,7 +59,7 @@ pub struct Module(Rc<Inner>);
 
 impl Module {
     pub fn from_binary(
-        ctxt: &GlobalContext,
+        ctxt: &GlobalEnv,
         module: &binary::modules::ConstModule,
     ) -> Result<Self> {
         // Resolve imports
