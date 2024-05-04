@@ -107,6 +107,7 @@ impl ConstFunction {
 
 #[derive(Clone, Debug)]
 pub enum ConstValue {
+    Bool(bool),
     Integer(Integer),
     Float(Float),
     String(ImmString),
@@ -120,6 +121,7 @@ impl ConstLoader for ConstValue {
         ctxt: &'a ConstResolutionContext,
     ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
         let (value, resolver) = match self {
+            ConstValue::Bool(b) => (Value::Bool(*b), None),
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
             ConstValue::String(s) => (Value::String(s.clone()), None),

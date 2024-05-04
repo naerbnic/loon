@@ -43,6 +43,7 @@ impl Value {
     /// reference.
     pub fn ref_eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Value::Bool(b1), Value::Bool(b2)) => b1 == b2,
             (Value::Integer(i1), Value::Integer(i2)) => i1 == i2,
             (Value::Float(f1), Value::Float(f2)) => f1 == f2,
             (Value::String(s1), Value::String(s2)) => s1 == s2,
