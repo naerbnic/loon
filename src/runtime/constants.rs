@@ -58,6 +58,10 @@ impl ValueTable {
         Ok(ValueTable(values))
     }
 
+    pub fn from_values(values: Vec<Value>) -> Self {
+        ValueTable(values)
+    }
+
     pub fn at(&self, index: u32) -> Result<&Value> {
         self.0
             .get(usize::try_from(index).unwrap())

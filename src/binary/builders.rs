@@ -292,9 +292,10 @@ macro_rules! def_build_inst_method {
 }
 
 impl FunctionBuilder {
-    pub fn push_int(&mut self, value: impl Into<Integer>) -> Result<&mut Self> {
+    pub fn push_int(&mut self, value: impl Into<Integer>) -> &mut Self {
         let value_ref = self.value_ref.builder_inner.new_int(value);
         self.push_value(&value_ref)
+            .expect("Value should be resolved.")
     }
 
     pub fn push_value(&mut self, value: &ValueRef) -> Result<&mut Self> {
@@ -372,7 +373,7 @@ mod tests {
     fn test_build_function() -> anyhow::Result<()> {
         let value_set = ModuleBuilder::with_num_globals(0);
         let (f, mut builder) = value_set.new_function();
-        builder.push_int(42)?.push_int(1138)?.add().return_(1);
+        builder.push_int(42).push_int(1138).add().return_(1);
         builder.build()?;
         f.export(ModuleMemberId::new("test"))?;
         let _const_table = value_set.into_const_module()?;

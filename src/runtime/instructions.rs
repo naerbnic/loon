@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{binary::instructions::InstructionList, refs::GcRef};
+use crate::refs::GcRef;
 
 use super::{
     context::InstEvalContext,
@@ -32,6 +32,14 @@ impl FunctionCallResult {
             args,
             return_target,
         }
+    }
+
+    pub fn function(&self) -> &GcRef<Function> {
+        &self.function
+    }
+
+    pub fn args(&self) -> &[Value] {
+        &self.args
     }
 
     pub fn return_target(&self) -> InstructionTarget {
@@ -68,7 +76,7 @@ pub(crate) trait InstEval: std::fmt::Debug {
 }
 
 #[derive(Clone, Debug)]
-pub struct InstPtr(Rc<dyn InstEval>);
+pub(crate) struct InstPtr(Rc<dyn InstEval>);
 
 impl InstPtr {
     pub fn new<T>(inst: T) -> Self
@@ -84,7 +92,7 @@ impl InstPtr {
 }
 
 #[derive(Clone, Debug)]
-pub struct InstEvalList(Vec<InstPtr>);
+pub(crate) struct InstEvalList(Vec<InstPtr>);
 
 impl InstEvalList {
     pub fn from_inst_ptrs(inst_list: Vec<InstPtr>) -> Self {
@@ -107,7 +115,7 @@ impl FromIterator<InstPtr> for InstEvalList {
 }
 
 pub struct CallStepResult {
-    pub function: Value,
+    pub function: GcRef<Function>,
     pub args: Vec<Value>,
 }
 

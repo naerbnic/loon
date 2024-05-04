@@ -10,6 +10,12 @@ use super::{
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ModuleId(Rc<Vec<ImmString>>);
 
+impl ModuleId {
+    pub fn new<'a>(path: impl IntoIterator<Item = &'a str>) -> Self {
+        ModuleId(Rc::new(path.into_iter().map(ImmString::from_str).collect()))
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ModuleMemberId(ImmString);
 

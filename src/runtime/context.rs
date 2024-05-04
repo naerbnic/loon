@@ -66,7 +66,7 @@ impl GlobalEnv {
             .get_export(import_source.import_name())
     }
 
-    pub fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
+    pub(crate) fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
         let inst_slice = inst_list.instructions();
         let result = inst_slice
             .iter()

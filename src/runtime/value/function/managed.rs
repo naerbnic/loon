@@ -2,21 +2,17 @@
 
 use std::rc::Rc;
 
-use crate::runtime::{instructions::InstEvalList, modules::ModuleGlobals, value::Value};
+use crate::runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals};
 
 /// A managed function, representing code within the Loon runtime to evaluate.
-pub struct ManagedFunction {
+pub(crate) struct ManagedFunction {
     globals: ModuleGlobals,
-    constants: Rc<Vec<Value>>,
+    constants: ValueTable,
     inst_list: Rc<InstEvalList>,
 }
 
 impl ManagedFunction {
-    pub fn new(
-        globals: ModuleGlobals,
-        constants: Rc<Vec<Value>>,
-        inst_list: Rc<InstEvalList>,
-    ) -> Self {
+    pub fn new(globals: ModuleGlobals, constants: ValueTable, inst_list: Rc<InstEvalList>) -> Self {
         ManagedFunction {
             globals,
             constants,
@@ -28,7 +24,11 @@ impl ManagedFunction {
         &self.inst_list
     }
 
-    pub fn constants(&self) -> &Rc<Vec<Value>> {
+    pub fn constants(&self) -> &ValueTable {
         &self.constants
+    }
+
+    pub fn globals(&self) -> &ModuleGlobals {
+        &self.globals
     }
 }

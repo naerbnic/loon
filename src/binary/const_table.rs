@@ -1,14 +1,6 @@
-use std::rc::Rc;
-
 use crate::{
     pure_values::{Float, Integer},
-    runtime::{
-        constants::{ConstLoader, ResolveFunc},
-        context::ConstResolutionContext,
-        environment::ModuleImportEnvironment,
-        error::RuntimeError,
-        value::{Function, List, Value},
-    },
+    runtime::{environment::ModuleImportEnvironment, error::RuntimeError, value::Value},
     util::imm_string::ImmString,
 };
 
@@ -24,7 +16,7 @@ pub enum ConstIndex {
 }
 
 impl ConstIndex {
-    pub fn resolve(
+    pub(crate) fn resolve(
         &self,
         imports: &ModuleImportEnvironment,
         consts: &[Value],
@@ -78,54 +70,4 @@ pub enum ConstValue {
     String(ImmString),
     List(Vec<ConstIndex>),
     Function(ConstFunction),
-}
-
-impl ConstLoader for ConstValue {
-    fn load<'a>(
-        &'a self,
-        ctxt: &'a ConstResolutionContext,
-    ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
-        let (value, resolver) = match self {
-            ConstValue::Bool(b) => (Value::Bool(*b), None),
-            ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
-            ConstValue::Float(f) => (Value::Float(f.clone()), None),
-            ConstValue::String(s) => (Value::String(s.clone()), None),
-            ConstValue::List(list) => {
-                let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
-                let resolver: ResolveFunc = Box::new(move |imports, vs| {
-                    let mut list_elems = Vec::with_capacity(list.len());
-                    for index in list {
-                        list_elems.push(index.resolve(imports, vs)?);
-                    }
-                    resolve_fn(List::from_iter(list_elems));
-                    Ok(())
-                });
-
-                (Value::List(deferred), Some(resolver))
-            }
-            ConstValue::Function(const_func) => {
-                let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
-                let resolver: ResolveFunc = Box::new(move |imports, vs| {
-                    let module_constants = const_func.module_constants();
-                    let mut resolved_func_consts =
-                        Vec::with_capacity(const_func.module_constants().len());
-                    for index in module_constants {
-                        resolved_func_consts.push(index.resolve(imports, vs)?);
-                    }
-                    resolve_fn(Function::new_managed(
-                        ctxt.module_globals().clone(),
-                        resolved_func_consts,
-                        Rc::new(
-                            ctxt.global_context()
-                                .resolve_instructions(const_func.instructions())?,
-                        ),
-                    ));
-                    Ok(())
-                });
-                (Value::Function(deferred), Some(resolver))
-            }
-        };
-
-        Ok((value, resolver.unwrap_or(Box::new(|_, _| Ok(())))))
-    }
 }

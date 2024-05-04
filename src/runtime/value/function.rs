@@ -3,8 +3,8 @@ use std::rc::Rc;
 use crate::{
     refs::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
-        error::RuntimeError, instructions::InstEvalList, modules::ModuleGlobals,
-        stack_frame::StackFrame, value::Value,
+        constants::ValueTable, error::RuntimeError, instructions::InstEvalList,
+        modules::ModuleGlobals, stack_frame::StackFrame, value::Value,
     },
 };
 
@@ -18,7 +18,7 @@ pub struct Closure {
     captured_values: Vec<Value>,
 }
 
-pub enum Function {
+pub(crate) enum Function {
     Managed(ManagedFunction),
     Closure(Closure),
 }
@@ -26,17 +26,20 @@ pub enum Function {
 impl Function {
     pub fn new_managed(
         global: ModuleGlobals,
-        consts: Vec<Value>,
+        consts: ValueTable,
         inst_list: Rc<InstEvalList>,
     ) -> Self {
-        Function::Managed(ManagedFunction::new(global, Rc::new(consts), inst_list))
+        Function::Managed(ManagedFunction::new(global, consts, inst_list))
     }
 
     pub fn make_stack_frame(&self, args: Vec<Value>) -> Result<StackFrame, RuntimeError> {
         match self {
-            Function::Managed(managed_func) => {
-                Ok(StackFrame::new(managed_func.inst_list().clone(), args))
-            }
+            Function::Managed(managed_func) => Ok(StackFrame::new(
+                managed_func.inst_list().clone(),
+                managed_func.constants().clone(),
+                managed_func.globals().clone(),
+                args,
+            )),
             Function::Closure(closure) => {
                 let mut inner_args = closure.captured_values.clone();
                 inner_args.extend(args);

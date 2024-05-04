@@ -11,7 +11,7 @@ struct ModuleEnvironmentInner {
 }
 
 #[derive(Clone)]
-pub struct ModuleImportEnvironment(Rc<ModuleEnvironmentInner>);
+pub(crate) struct ModuleImportEnvironment(Rc<ModuleEnvironmentInner>);
 
 impl ModuleImportEnvironment {
     pub fn new(imports: Vec<Value>) -> Self {

@@ -1,11 +1,15 @@
 use std::{borrow::Cow, rc::Rc};
 
+use crate::binary::instructions::StackIndex;
+
 use super::{
-    context::InstEvalContext,
+    constants::ValueTable,
+    context::{GlobalEnv, InstEvalContext},
     error::{Result, RuntimeError},
     instructions::{
         CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
     },
+    modules::ModuleGlobals,
     value::Value,
 };
 
@@ -21,10 +25,6 @@ impl InstState {
 
     pub fn curr_inst(&self) -> &dyn InstEval {
         self.inst_list.inst_at(self.pc).unwrap()
-    }
-
-    pub fn pc(&self) -> usize {
-        self.pc
     }
 
     pub fn update_pc(&mut self, pc: InstructionTarget) -> Result<()> {
@@ -57,10 +57,6 @@ impl LocalStack {
         }
     }
 
-    pub fn depth(&self) -> usize {
-        self.stack.len()
-    }
-
     pub fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
@@ -70,17 +66,40 @@ impl LocalStack {
             .pop()
             .ok_or_else(|| RuntimeError::new_operation_precondition_error("Local stack is empty."))
     }
+
+    pub fn get_at_index(&self, index: StackIndex) -> Result<&Value> {
+        let index = match index {
+            StackIndex::FromTop(i) => self
+                .stack
+                .len()
+                .checked_sub((i as usize) + 1)
+                .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range"))?,
+            StackIndex::FromBottom(i) => i as usize,
+        };
+        self.stack
+            .get(index)
+            .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range."))
+    }
 }
 
 pub struct StackFrame {
     inst_state: InstState,
+    local_consts: ValueTable,
+    module_globals: ModuleGlobals,
     local_stack: LocalStack,
 }
 
 impl StackFrame {
-    pub fn new(inst_list: Rc<InstEvalList>, args: Vec<Value>) -> Self {
+    pub fn new(
+        inst_list: Rc<InstEvalList>,
+        local_consts: ValueTable,
+        module_globals: ModuleGlobals,
+        args: Vec<Value>,
+    ) -> Self {
         StackFrame {
             inst_state: InstState::new(inst_list),
+            local_consts,
+            module_globals,
             local_stack: LocalStack::from_args(args),
         }
     }
@@ -95,17 +114,18 @@ impl StackFrame {
         Ok(args)
     }
 
-    pub fn step(&mut self, ctxt: &InstEvalContext) -> Result<Option<FrameChange>> {
+    pub fn step(&mut self, ctxt: &GlobalEnv) -> Result<Option<FrameChange>> {
+        let inst_eval_ctxt = InstEvalContext::new(ctxt, &self.local_consts, &self.module_globals);
         let inst = self.inst_state.curr_inst();
-        let result = match inst.execute(ctxt, &mut self.local_stack)? {
+        let result = match inst.execute(&inst_eval_ctxt, &mut self.local_stack)? {
             InstructionResult::Next(target) => {
                 self.inst_state.update_pc(target)?;
                 None
             }
             InstructionResult::Return => Some(FrameChange::Return(self.read_args_from_stack()?)),
             InstructionResult::Call(func_call) => {
-                let function = self.local_stack.pop()?;
-                let args = self.read_args_from_stack()?;
+                let function = func_call.function().clone();
+                let args = func_call.args().to_vec();
                 self.inst_state.update_pc(func_call.return_target())?;
                 let call = CallStepResult { function, args };
                 Some(FrameChange::Call(call))
@@ -114,7 +134,7 @@ impl StackFrame {
         Ok(result)
     }
 
-    pub fn run_to_frame_change(&mut self, ctxt: &InstEvalContext) -> Result<FrameChange> {
+    pub fn run_to_frame_change(&mut self, ctxt: &GlobalEnv) -> Result<FrameChange> {
         loop {
             if let Some(result) = self.step(ctxt)? {
                 return Ok(result);

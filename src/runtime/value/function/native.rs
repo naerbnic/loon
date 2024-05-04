@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::runtime::value::Value;
 
 pub struct TailCall {
@@ -11,16 +13,16 @@ pub struct CallWithContinuation {
     continuation: Value,
 }
 
-enum NativeFunctionResult {
+pub enum NativeFunctionResult {
     ReturnValue(Vec<Value>),
     TailCall(TailCall),
     CallWithContinuation(CallWithContinuation),
 }
 
-struct NativeFunctionContext();
+pub struct NativeFunctionContext();
 
 impl NativeFunctionContext {
-    pub fn call(&self, function: Value, args: &[Value]) -> Vec<Value> {
+    pub fn call(&self, _function: Value, _args: &[Value]) -> Vec<Value> {
         todo!()
     }
 

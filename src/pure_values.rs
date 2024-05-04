@@ -120,3 +120,9 @@ impl Float {
         Float(self.0 + other.0)
     }
 }
+
+impl From<f64> for Float {
+    fn from(f: f64) -> Self {
+        Float(f)
+    }
+}
