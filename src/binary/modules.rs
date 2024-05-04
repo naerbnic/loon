@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::util::imm_string::ImmString;
 
-use super::const_table::ConstTable;
+use super::const_table::ConstValue;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ModuleId(Rc<Vec<ImmString>>);
@@ -43,7 +43,7 @@ pub struct ConstModule {
     /// The set of constants defined in this module. This const table must
     /// be fully defined, with no escaping local references, and globals
     /// must be covered by the global set, or the module's imports.
-    const_table: ConstTable,
+    const_table: Vec<ConstValue>,
 
     /// The imports into this module. The key is the name of the import in the
     /// module scope, and the value is the source of the import.
@@ -65,7 +65,7 @@ pub struct ConstModule {
 
 impl ConstModule {
     pub fn new(
-        const_table: ConstTable,
+        const_table: Vec<ConstValue>,
         imports: Vec<ImportSource>,
         exports: HashMap<ModuleMemberId, u32>,
         initializer: Option<u32>,
@@ -79,7 +79,7 @@ impl ConstModule {
             global_table_size,
         }
     }
-    pub fn const_table(&self) -> &ConstTable {
+    pub fn const_table(&self) -> &[ConstValue] {
         &self.const_table
     }
     pub fn imports(&self) -> &[ImportSource] {

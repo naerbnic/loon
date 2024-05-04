@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    const_table::{ConstFunction, ConstIndex, ConstTable, ConstValue},
+    const_table::{ConstFunction, ConstIndex, ConstValue},
     error::{BuilderError, Result},
     instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
     modules::{ConstModule, ImportSource, ModuleMemberId},
@@ -135,9 +135,8 @@ impl InnerRc {
             );
         }
         validate_const_values(&result, inner.num_globals, inner.imports.len() as u32)?;
-        let const_table = ConstTable::new(result).expect("Failed to create const table.");
         Ok(ConstModule::new(
-            const_table,
+            result,
             inner.imports.clone(),
             inner.exports.clone(),
             inner.initializer,

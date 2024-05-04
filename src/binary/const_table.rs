@@ -175,13 +175,13 @@ impl ConstLoader for ConstValue {
 /// the table has to meet.
 pub fn validate_const_values(
     table_elements: &[ConstValue],
-    globals_size: u32,
+    _globals_size: u32,
     imports_size: u32,
 ) -> Result<(), ValidationError> {
     let check_index = |index: &ConstIndex| {
         match index {
             ConstIndex::ModuleConst(i) => {
-                if *i >= globals_size {
+                if *i >= table_elements.len() as u32 {
                     return Err(ValidationError::LocalIndexResolutionError);
                 }
             }
@@ -210,21 +210,4 @@ pub fn validate_const_values(
         }
     }
     Ok(())
-}
-
-#[derive(Clone, Debug)]
-pub struct ConstTable {
-    entries: Rc<Vec<ConstValue>>,
-}
-
-impl ConstTable {
-    pub fn new(values: Vec<ConstValue>) -> Result<Self, ValidationError> {
-        Ok(ConstTable {
-            entries: Rc::new(values),
-        })
-    }
-
-    pub fn values(&self) -> &[ConstValue] {
-        &self.entries
-    }
 }

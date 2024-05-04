@@ -2,7 +2,7 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use crate::binary::const_table::ConstTable;
+use crate::binary::const_table::ConstValue;
 
 use super::{
     context::ConstResolutionContext,
@@ -53,8 +53,8 @@ impl ValueTable {
     /// We allow for self-referential constants and recursive constants via creating
     /// deferred references which will be resolved by the time that constant
     /// resolution completes.
-    pub fn from_binary(const_table: &ConstTable, ctxt: &ConstResolutionContext) -> Result<Self> {
-        let values = resolve_constants(ctxt, ctxt.import_environment(), const_table.values())?;
+    pub fn from_binary(const_table: &[ConstValue], ctxt: &ConstResolutionContext) -> Result<Self> {
+        let values = resolve_constants(ctxt, ctxt.import_environment(), const_table)?;
         Ok(ValueTable(values))
     }
 
@@ -78,12 +78,11 @@ mod tests {
     #[test]
     fn build_simple_values() {
         let ctxt = ConstResolutionContext::new(GlobalContext::new());
-        let const_table = ConstTable::new(vec![
+        let const_table = vec![
             ConstValue::Integer(42.into()),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
             ConstValue::String("hello".into()),
-        ])
-        .unwrap();
+        ];
 
         let resolved_values = ValueTable::from_binary(&const_table, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 3);
@@ -107,15 +106,14 @@ mod tests {
     #[test]
     fn build_composite_value() {
         let ctxt = ConstResolutionContext::new(GlobalContext::new());
-        let values = ConstTable::new(vec![
+        let values = vec![
             ConstValue::Integer(42.into()),
             ConstValue::List(vec![
                 ConstIndex::ModuleConst(0),
                 ConstIndex::ModuleConst(0),
                 ConstIndex::ModuleConst(0),
             ]),
-        ])
-        .unwrap();
+        ];
 
         let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);
