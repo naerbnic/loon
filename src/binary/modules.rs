@@ -10,6 +10,13 @@ pub struct ModuleId(Rc<Vec<ImmString>>);
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ModuleMemberId(ImmString);
 
+impl ModuleMemberId {
+    pub fn new(name: &str) -> Self {
+        ModuleMemberId(ImmString::from_str(name))
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ImportSource {
     module_id: ModuleId,
     import_name: ModuleMemberId,
@@ -57,6 +64,21 @@ pub struct ConstModule {
 }
 
 impl ConstModule {
+    pub fn new(
+        const_table: ConstTable,
+        imports: Vec<ImportSource>,
+        exports: HashMap<ModuleMemberId, u32>,
+        initializer: Option<u32>,
+        global_table_size: u32,
+    ) -> Self {
+        ConstModule {
+            const_table,
+            imports,
+            exports,
+            initializer,
+            global_table_size,
+        }
+    }
     pub fn const_table(&self) -> &ConstTable {
         &self.const_table
     }

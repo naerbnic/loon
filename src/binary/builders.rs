@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     pure_values::{Float, Integer},
@@ -8,22 +8,43 @@ use crate::{
 use super::{
     const_table::{ConstFunction, ConstIndex, ConstTable, ConstValue},
     instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
+    modules::{ConstModule, ImportSource, ModuleMemberId},
 };
 
-struct ValueSetInner {
+struct BuilderInner {
+    imports: Vec<ImportSource>,
     values: Vec<Option<ConstValue>>,
+    exports: HashMap<ModuleMemberId, u32>,
+    initializer: Option<u32>,
+    num_globals: u32,
 }
 
 #[derive(Clone)]
-struct InnerRc(Rc<RefCell<ValueSetInner>>);
+struct InnerRc(Rc<RefCell<BuilderInner>>);
 
 impl InnerRc {
-    pub fn new(values: Vec<Option<ConstValue>>) -> Self {
-        InnerRc(Rc::new(RefCell::new(ValueSetInner { values })))
+    pub fn with_num_globals(num_globals: u32) -> Self {
+        InnerRc(Rc::new(RefCell::new(BuilderInner {
+            imports: Vec::new(),
+            values: Vec::new(),
+            exports: HashMap::new(),
+            initializer: None,
+            num_globals,
+        })))
     }
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.0.as_ptr(), other.0.as_ptr())
+    }
+
+    pub fn add_import(&self, source: ImportSource) -> ValueRef {
+        let mut inner = self.0.borrow_mut();
+        let index = inner.imports.len();
+        inner.imports.push(source);
+        ValueRef {
+            builder_inner: self.clone(),
+            const_index: ConstIndex::ModuleImport(u32::try_from(index).unwrap()),
+        }
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
@@ -34,8 +55,8 @@ impl InnerRc {
             index
         };
         let value_ref = ValueRef {
-            value_set: self.clone(),
-            index,
+            builder_inner: self.clone(),
+            const_index: ConstIndex::ModuleConst(u32::try_from(index).unwrap()),
         };
         let deferred_value = DeferredValue(value_ref.clone());
         (value_ref, deferred_value)
@@ -59,33 +80,58 @@ impl InnerRc {
         (value_ref, builder)
     }
 
-    fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
-        if !self.ptr_eq(&value_ref.value_set) {
-            return None;
+    pub fn new_initializer(&self) -> FunctionBuilder {
+        let (value_ref, deferred_value) = self.new_deferred();
+        {
+            let mut inner = self.0.borrow_mut();
+            let index = match &value_ref.const_index {
+                ConstIndex::ModuleConst(i) => *i,
+                ConstIndex::ModuleImport(_) => panic!("Cannot mark an import as an initializer."),
+            };
+            let prev_initializer = inner.initializer.replace(index);
+            assert!(prev_initializer.is_none(), "Initializer already defined.");
         }
-        Some(ConstIndex::ModuleConst(
-            u32::try_from(value_ref.index).unwrap(),
-        ))
+        deferred_value.into_function_builder()
     }
 
-    pub fn to_const_table(&self) -> ConstTable {
+    fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
+        if !self.ptr_eq(&value_ref.builder_inner) {
+            return None;
+        }
+        Some(value_ref.const_index.clone())
+    }
+
+    pub fn to_const_module(&self) -> ConstModule {
         let mut result = Vec::new();
-        for value in self.0.borrow().values.iter() {
+        let inner = self.0.borrow();
+        dbg!(inner.values.len());
+        for value in inner.values.iter() {
             if let Some(value) = value {
                 result.push(value.clone());
             } else {
                 panic!("Deferred value not resolved.");
             }
         }
-        ConstTable::new(result).expect("Failed to create const table.")
+        let const_table = ConstTable::new(result).expect("Failed to create const table.");
+        ConstModule::new(
+            const_table,
+            inner.imports.clone(),
+            inner.exports.clone(),
+            inner.initializer,
+            inner.num_globals,
+        )
     }
 }
 
-pub struct ValueSet(InnerRc);
+pub struct ModuleBuilder(InnerRc);
 
-impl ValueSet {
-    pub fn new_root() -> Self {
-        ValueSet(InnerRc::new(Vec::new()))
+impl ModuleBuilder {
+    pub fn with_num_globals(num_globals: u32) -> Self {
+        ModuleBuilder(InnerRc::with_num_globals(num_globals))
+    }
+
+    pub fn add_import(&self, source: ImportSource) -> ValueRef {
+        self.0.add_import(source)
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
@@ -104,21 +150,40 @@ impl ValueSet {
         self.0.new_function()
     }
 
-    pub fn into_const_table(&self) -> ConstTable {
-        self.0.to_const_table()
+    pub fn new_initializer(&self) -> FunctionBuilder {
+        self.0.new_initializer()
+    }
+
+    pub fn into_const_module(&self) -> ConstModule {
+        self.0.to_const_module()
     }
 }
 
 #[derive(Clone)]
 pub struct ValueRef {
-    value_set: InnerRc,
-    index: usize,
+    builder_inner: InnerRc,
+    const_index: ConstIndex,
 }
 
 impl ValueRef {
     fn resolve(&self, const_value: ConstValue) {
-        let mut inner = self.value_set.0.borrow_mut();
-        let prev = inner.values[self.index].replace(const_value);
+        let mut inner = self.builder_inner.0.borrow_mut();
+        match &self.const_index {
+            ConstIndex::ModuleConst(index) => {
+                let prev = inner.values[*index as usize].replace(const_value);
+                assert!(prev.is_none());
+            }
+            _ => panic!("Invalid const index."),
+        }
+    }
+
+    pub fn export(&self, name: ModuleMemberId) {
+        let mut inner = self.builder_inner.0.borrow_mut();
+        let index = match &self.const_index {
+            ConstIndex::ModuleConst(index) => *index,
+            _ => panic!("Invalid const index."),
+        };
+        let prev = inner.exports.insert(name, index);
         assert!(prev.is_none());
     }
 }
@@ -134,7 +199,7 @@ impl DeferredValue {
     }
 
     fn find_ref_index(&self, value_ref: &ValueRef) -> Option<ConstIndex> {
-        self.0.value_set.find_ref_index(value_ref)
+        self.0.builder_inner.find_ref_index(value_ref)
     }
 
     pub fn resolve_int(self, value: impl Into<Integer>) {
@@ -166,19 +231,21 @@ impl DeferredValue {
     }
 }
 
-impl Drop for DeferredValue {
-    fn drop(&mut self) {
-        self.0.value_set.0.borrow().values[self.0.index]
-            .as_ref()
-            .expect("Deferred value not resolved.");
-    }
-}
+// impl Drop for DeferredValue {
+//     fn drop(&mut self) {
+//         match self.0.const_index {
+//             ConstIndex::ModuleConst(index) => {
+//                 let inner = self.0.builder_inner.0.borrow();
+//                 if inner.values[index as usize].is_none() {
+//                     panic!("Deferred value not resolved.");
+//                 }
+//             }
+//             _ => panic!("Invalid const index."),
+//         }
+//     }
+// }
 
 pub struct BranchTarget();
-
-pub struct ModuleBuilder {}
-
-impl ModuleBuilder {}
 
 pub struct FunctionBuilder {
     /// The value reference for the deferred function being built.
@@ -198,13 +265,13 @@ macro_rules! def_build_inst_method {
 
 impl FunctionBuilder {
     pub fn push_int(&mut self, value: impl Into<Integer>) -> &mut Self {
-        let value_ref = self.value_ref.value_set.new_int(value);
+        let value_ref = self.value_ref.builder_inner.new_int(value);
         self.push_value(&value_ref);
         self
     }
 
     pub fn push_value(&mut self, value: &ValueRef) -> &mut Self {
-        let const_index = self.value_ref.value_set.find_ref_index(value).unwrap();
+        let const_index = self.value_ref.builder_inner.find_ref_index(value).unwrap();
         let index = if let ConstIndex::ModuleConst(index) = const_index {
             index
         } else {
@@ -244,17 +311,30 @@ mod tests {
 
     #[test]
     fn test_build_atomic_values() {
-        let value_set = ValueSet::new_root();
+        let value_set = ModuleBuilder::with_num_globals(0);
         value_set.new_int(42);
-        value_set.into_const_table();
+        value_set.into_const_module();
     }
 
     #[test]
     fn test_build_compound_value() {
-        let value_set = ValueSet::new_root();
+        let value_set = ModuleBuilder::with_num_globals(0);
         let i1 = value_set.new_int(42);
         let i2 = value_set.new_int(1138);
         let _list = value_set.new_list(vec![i1.clone(), i2.clone()]);
-        let _const_table = value_set.into_const_table();
+        let _const_table = value_set.into_const_module();
+    }
+
+    #[test]
+    fn test_build_function() {
+        let value_set = ModuleBuilder::with_num_globals(0);
+        let (f, mut builder) = value_set.new_function();
+        builder.push_int(42);
+        builder.push_int(1138);
+        builder.add();
+        builder.return_(1);
+        builder.build();
+        f.export(ModuleMemberId::new("test"));
+        let _const_table = value_set.into_const_module();
     }
 }
