@@ -1,10 +1,10 @@
-pub mod add;
-pub mod call_dynamic;
-pub mod pop;
-pub mod push_const;
-pub mod push_global;
-pub mod return_dynamic;
-pub mod set_global;
+mod add;
+mod call_dynamic;
+mod pop;
+mod push_const;
+mod push_global;
+mod return_dynamic;
+mod set_global;
 
 pub use add::Add;
 pub use call_dynamic::CallDynamic;
