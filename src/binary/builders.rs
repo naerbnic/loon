@@ -11,27 +11,10 @@ use crate::{
 
 use super::{
     const_table::{ConstFunction, ConstIndex, ConstTable, ConstValue},
+    error::{BuilderError, Result},
     instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
     modules::{ConstModule, ImportSource, ModuleMemberId},
 };
-
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-pub enum BuilderError {
-    #[error("Value already exists.")]
-    AlreadyExists,
-
-    #[error("Expected a moudle const.")]
-    ExpectedModuleConst,
-
-    #[error("Mismatched builder.")]
-    MismatchedBuilder,
-
-    #[error("Deferred value not resolved.")]
-    DeferredNotResolved,
-}
-
-type Result<T> = std::result::Result<T, BuilderError>;
 
 struct BuilderInner {
     imports: Vec<ImportSource>,
@@ -344,7 +327,7 @@ impl FunctionBuilder {
         self.value_ref
             .resolve(ConstValue::Function(ConstFunction::new(
                 std::mem::take(&mut self.const_indexes),
-                std::mem::take(&mut self.insts).build(),
+                std::mem::take(&mut self.insts).build()?,
             )))?;
         Ok(())
     }

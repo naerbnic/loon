@@ -1,6 +1,11 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::util::{imm_string::ImmString, intern::InternSet};
+use crate::{
+    binary::error::BuilderError,
+    util::{imm_string::ImmString, intern::InternSet},
+};
+
+use super::error::Result;
 
 /// An opcode for an instruction.
 ///
@@ -176,16 +181,23 @@ impl InstructionListBuilder {
         self
     }
 
-    pub fn build(mut self) -> InstructionList {
+    pub fn build(mut self) -> Result<InstructionList> {
         // Resolve branch targets.
         for (index, target) in self.branch_resolutions {
-            let target = self.branch_targets.get(&target).unwrap();
-            let prev = self.instructions[index as usize].replace(Instruction::BranchIf(*target));
-            assert!(prev.is_none())
+            let target = self
+                .branch_targets
+                .get(&target)
+                .ok_or(BuilderError::DeferredNotResolved)?;
+            let inst = &mut self.instructions[index as usize];
+            assert!(inst.is_none(), "Should never be able to double resolve.");
+            *inst = Some(Instruction::BranchIf(*target));
         }
-        let result: Result<Vec<Instruction>, ()> =
-            self.instructions.into_iter().map(|i| i.ok_or(())).collect();
-        InstructionList(Rc::new(result.unwrap()))
+        let result = self
+            .instructions
+            .into_iter()
+            .map(|i| i.ok_or(BuilderError::DeferredNotResolved))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(InstructionList(Rc::new(result)))
     }
 }
 
@@ -204,7 +216,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_push_basic_instructions() {
+    fn test_push_basic_instructions() -> anyhow::Result<()> {
         let mut builder = InstructionListBuilder::new();
         // Pop arg count from stack.
         builder
@@ -215,16 +227,18 @@ mod tests {
             .add()
             .return_(1);
 
-        builder.build();
+        builder.build()?;
+        Ok(())
     }
 
     #[test]
-    fn test_branch() {
+    fn test_branch() -> anyhow::Result<()> {
         let mut builder = InstructionListBuilder::new();
         builder
             .define_branch_target("loop_start")
             .push_const(0)
             .branch_if("loop_start");
-        builder.build();
+        builder.build()?;
+        Ok(())
     }
 }
