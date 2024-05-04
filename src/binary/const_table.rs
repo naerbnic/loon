@@ -79,6 +79,13 @@ impl ConstIndex {
             ConstIndex::ModuleImport(index) => imports.get_import(*index),
         }
     }
+
+    pub fn as_module_const(&self) -> Option<u32> {
+        match self {
+            ConstIndex::ModuleConst(index) => Some(*index),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

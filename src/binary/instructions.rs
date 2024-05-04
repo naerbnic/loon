@@ -60,9 +60,6 @@ pub enum Instruction {
     /// Push a copy of the given stack index onto the stack.
     PushCopy(StackIndex),
 
-    /// Push a module import onto the stack.
-    PushImport(u32),
-
     /// Pushes the value of a global from the module.
     PushGlobal(u32),
 
@@ -147,7 +144,6 @@ impl InstructionListBuilder {
     }
 
     inst_builder!(push_const, PushConst(c: u32));
-    inst_builder!(push_import, PushImport(index: u32));
     inst_builder!(push_copy, PushCopy(s: StackIndex));
     inst_builder!(push_global, PushGlobal(index: u32));
     inst_builder!(pop_global, PopGlobal(index: u32));

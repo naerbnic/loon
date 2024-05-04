@@ -74,7 +74,6 @@ impl GlobalContext {
                 Ok(match inst {
                     Instruction::PushConst(i) => InstPtr::new(PushConst::new(*i)),
                     Instruction::PushCopy(_) => todo!(),
-                    Instruction::PushImport(_) => todo!(),
                     Instruction::PushGlobal(i) => InstPtr::new(PushGlobal::new(*i)),
                     Instruction::PopGlobal(i) => InstPtr::new(SetGlobal::new(*i)),
                     Instruction::Pop(i) => InstPtr::new(Pop::new(*i)),
