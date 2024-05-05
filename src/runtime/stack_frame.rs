@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::{
     binary::{instructions::StackIndex, modules::ImportSource},
     pure_values::Integer,
+    runtime::value::NativeFunctionResult,
     util::imm_string::ImmString,
 };
 
@@ -14,7 +15,9 @@ use super::{
         CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
     },
     modules::ModuleGlobals,
-    value::{List, Value},
+    value::{
+        Function, List, NativeFunctionContext, NativeFunctionPtr, NativeFunctionResultInner, Value,
+    },
 };
 
 struct InstState {
@@ -141,6 +144,31 @@ impl<'a> StackContext<'a> {
         Ok(())
     }
 
+    pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
+        let function = self.stack.pop()?.as_function()?.clone();
+        let captured_values = self.stack.drain_top_n(num_args)?;
+        let new_value = Value::Function(function.bind_front(
+            self.global_context,
+            captured_values,
+        ));
+        self.stack.push(new_value);
+        Ok(())
+    }
+
+    pub fn push_native_function<F>(&mut self, function: F)
+    where
+        F: Fn(NativeFunctionContext) -> Result<NativeFunctionResult> + 'static,
+    {
+        self.stack.push(Value::Function(Function::new_native(
+            self.global_context,
+            function,
+        )));
+    }
+
+    pub fn get_int(&self, index: StackIndex) -> Result<Integer> {
+        Ok(self.stack.get_at_index(index)?.as_int()?.clone())
+    }
+
     pub fn pop_n(&mut self, n: usize) -> Result<()> {
         for _ in 0..n {
             self.stack.pop()?;
@@ -195,15 +223,30 @@ impl ManagedFrameState {
     }
 }
 
-struct NativeFrameState {}
+struct NativeFrameState {
+    native_func: NativeFunctionPtr,
+}
 
 impl NativeFrameState {
     pub fn run_to_frame_change(
         &mut self,
-        _ctxt: &GlobalEnv,
-        _local_stack: &mut LocalStack,
+        ctxt: &GlobalEnv,
+        local_stack: &mut LocalStack,
     ) -> Result<FrameChange> {
-        todo!()
+        let ctxt = NativeFunctionContext::new(ctxt, local_stack);
+        match self.native_func.call(ctxt)?.0 {
+            NativeFunctionResultInner::ReturnValue(num_values) => {
+                Ok(FrameChange::Return(num_values))
+            }
+            NativeFunctionResultInner::TailCall(_) => todo!(),
+            NativeFunctionResultInner::CallWithContinuation(call) => {
+                self.native_func = call.continuation().clone();
+                Ok(FrameChange::Call(CallStepResult {
+                    function: call.function().clone(),
+                    num_args: call.num_args(),
+                }))
+            }
+        }
     }
 }
 
@@ -218,7 +261,7 @@ pub struct StackFrame {
 }
 
 impl StackFrame {
-    pub fn new(
+    pub fn new_managed(
         inst_list: Rc<InstEvalList>,
         local_consts: ValueTable,
         module_globals: ModuleGlobals,
@@ -230,6 +273,13 @@ impl StackFrame {
                 local_consts,
                 module_globals,
             }),
+            local_stack,
+        }
+    }
+
+    pub fn new_native(native_func: NativeFunctionPtr, local_stack: LocalStack) -> Self {
+        StackFrame {
+            frame_state: FrameState::Native(NativeFrameState { native_func }),
             local_stack,
         }
     }

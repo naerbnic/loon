@@ -23,7 +23,7 @@ mod tests {
         let module_builder = ModuleBuilder::with_num_globals(0);
         let (test_func, mut test_func_builder) = module_builder.new_function();
         test_func.export(member_id.clone())?;
-        test_func_builder.add().push_int(1).return_dynamic();
+        test_func_builder.add().return_(1);
         test_func_builder.build()?;
         let module = module_builder.into_const_module()?;
 
@@ -39,7 +39,10 @@ mod tests {
         }
         let num_args = top_level.call_function(2)?;
         assert_eq!(num_args, 1);
-        assert_eq!(Integer::from(3), top_level.get_int(StackIndex::FromTop(0))?);
+        assert_eq!(
+            Integer::from(3),
+            top_level.stack().get_int(StackIndex::FromTop(0))?
+        );
         Ok(())
     }
 }

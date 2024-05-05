@@ -14,12 +14,14 @@ use crate::{
 };
 
 use self::managed::ManagedFunction;
+use self::native::NativeFunctionPtr;
 
 pub mod managed;
 pub mod native;
 
 pub enum BaseFunction {
     Managed(ManagedFunction),
+    Native(NativeFunctionPtr),
 }
 
 impl BaseFunction {
@@ -28,15 +30,16 @@ impl BaseFunction {
         args: impl IntoIterator<Item = Value>,
         mut local_stack: LocalStack,
     ) -> Result<StackFrame> {
+        local_stack.push_iter(args);
         match self {
-            BaseFunction::Managed(managed_func) => {
-                local_stack.push_iter(args);
-                Ok(StackFrame::new(
-                    managed_func.inst_list().clone(),
-                    managed_func.constants().clone(),
-                    managed_func.globals().clone(),
-                    local_stack,
-                ))
+            BaseFunction::Managed(managed_func) => Ok(StackFrame::new_managed(
+                managed_func.inst_list().clone(),
+                managed_func.constants().clone(),
+                managed_func.globals().clone(),
+                local_stack,
+            )),
+            BaseFunction::Native(native_func) => {
+                Ok(StackFrame::new_native(native_func.clone(), local_stack))
             }
         }
     }
@@ -49,6 +52,7 @@ impl GcTraceable for BaseFunction {
     {
         match self {
             BaseFunction::Managed(managed_func) => managed_func.trace(visitor),
+            BaseFunction::Native(_) => {}
         }
     }
 }
@@ -93,6 +97,15 @@ impl Function {
         })
     }
 
+    pub fn new_native<T>(global_env: &GlobalEnv, native_func: T) -> Self
+    where
+        T: native::NativeFunction + 'static,
+    {
+        Function::Base(
+            global_env.create_ref(BaseFunction::Native(NativeFunctionPtr::new(native_func))),
+        )
+    }
+
     pub fn new_closure(
         global_env: &GlobalEnv,
         function: GcRef<BaseFunction>,
@@ -102,6 +115,25 @@ impl Function {
             function,
             captured_values,
         }))
+    }
+
+    pub fn bind_front(
+        &self,
+        global_env: &GlobalEnv,
+        captured_values: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        match self {
+            Function::Base(base) => Function::new_closure(
+                global_env,
+                base.clone(),
+                captured_values.into_iter().collect(),
+            ),
+            Function::Closure(closure) => closure.with(|closure| {
+                let mut new_captured_values = closure.captured_values.clone();
+                new_captured_values.extend(captured_values);
+                Function::new_closure(global_env, closure.function.clone(), new_captured_values)
+            }),
+        }
     }
 
     pub fn make_stack_frame(

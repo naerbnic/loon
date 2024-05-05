@@ -15,7 +15,11 @@ use super::{
 
 mod function;
 mod list;
-
+pub use self::function::native::NativeFunctionResult;
+pub(crate) use function::native::{
+    CallWithContinuation, NativeFunctionContext, NativeFunctionPtr, NativeFunctionResultInner,
+    TailCall,
+};
 pub(crate) use function::Function;
 pub(crate) use list::List;
 

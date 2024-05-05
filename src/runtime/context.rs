@@ -160,6 +160,10 @@ impl<'a> InstEvalContext<'a> {
         }
     }
 
+    pub fn get_env(&self) -> &GlobalEnv {
+        self.global_context
+    }
+
     pub fn get_constant(&self, index: u32) -> Result<Value> {
         self.local_constants.at(index).cloned()
     }

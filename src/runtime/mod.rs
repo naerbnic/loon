@@ -1,5 +1,3 @@
-use crate::{binary::instructions::StackIndex, pure_values::Integer};
-
 use self::{
     context::GlobalEnv,
     error::Result,
@@ -38,10 +36,6 @@ impl TopLevelRuntime {
         let function = self.stack.pop()?;
         let mut eval_context = EvalContext::new(&self.global_context, &mut self.stack);
         eval_context.run(function.as_function()?.clone(), num_args)
-    }
-
-    pub fn get_int(&self, index: StackIndex) -> Result<Integer> {
-        Ok(self.stack.get_at_index(index)?.as_int()?.clone())
     }
 }
 
