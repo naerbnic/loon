@@ -1,4 +1,5 @@
 mod add;
+mod bool;
 mod branch;
 mod branch_if;
 mod call_dynamic;
@@ -12,6 +13,7 @@ mod return_dynamic;
 mod set_global;
 
 pub use add::Add;
+pub use bool::{and::BoolAnd, not::BoolNot, or::BoolOr, xor::BoolXor};
 pub use branch::Branch;
 pub use branch_if::BranchIf;
 pub use call_dynamic::CallDynamic;
