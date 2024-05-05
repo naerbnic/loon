@@ -143,11 +143,8 @@ mod tests {
             Value::List(list) => {
                 list.with(|l| {
                     assert_eq!(l.len(), 3);
-                    for elem in l.iter() {
-                        match elem {
-                            Value::Integer(i) => assert_eq!(*i, 42.into()),
-                            _ => panic!("Expected integer value."),
-                        }
+                    for i in 0..3 {
+                        assert_eq!(l.at(i).as_int().unwrap(), &42.into())
                     }
                 });
             }

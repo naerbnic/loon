@@ -1,28 +1,47 @@
+use std::cell::RefCell;
+
 use crate::{
     refs::{GcRefVisitor, GcTraceable},
-    runtime::value::Value,
+    runtime::{
+        error::{Result, RuntimeError},
+        value::Value,
+    },
 };
 
 #[derive(Clone)]
 pub struct List {
-    items: Vec<Value>,
+    items: RefCell<Vec<Value>>,
 }
 
 impl List {
+    pub fn new() -> Self {
+        List {
+            items: RefCell::new(Vec::new()),
+        }
+    }
+
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.items.borrow().len()
     }
 
-    pub fn at(&self, index: usize) -> &Value {
-        self.get(index).expect("Out of bounds list access")
+    pub fn at(&self, index: usize) -> Value {
+        self.get(index).expect("Out of bounds list access").clone()
     }
 
-    pub fn get(&self, index: usize) -> Option<&Value> {
-        self.items.get(index)
+    pub fn get(&self, index: usize) -> Option<Value> {
+        self.items.borrow().get(index).cloned()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Value> {
-        self.items.iter()
+    pub fn append(&self, value: Value) {
+        self.items.borrow_mut().push(value);
+    }
+
+    pub fn set(&self, index: u32, value: Value) -> Result<()> {
+        let mut items = self.items.borrow_mut();
+        *items
+            .get_mut(index as usize)
+            .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))? = value;
+        Ok(())
     }
 }
 
@@ -32,7 +51,7 @@ impl FromIterator<Value> for List {
         I: IntoIterator<Item = Value>,
     {
         List {
-            items: iter.into_iter().collect(),
+            items: RefCell::new(iter.into_iter().collect()),
         }
     }
 }
@@ -42,7 +61,8 @@ impl GcTraceable for List {
     where
         V: GcRefVisitor,
     {
-        for item in &self.items {
+        let items = self.items.borrow();
+        for item in &items[..] {
             item.trace(visitor);
         }
     }

@@ -79,6 +79,12 @@ pub enum Instruction {
     BoolXor,
     BoolNot,
 
+    ListNew,
+    ListAppend,
+    ListLen,
+    ListGet,
+    ListSet,
+
     /// Compare the top two values on the stack, applying the given comparison.
     Compare(CompareOp),
 

@@ -2,7 +2,12 @@
 
 use std::rc::Rc;
 
-use crate::runtime::{context::GlobalEnv, error::Result, stack_frame::LocalStack, EvalContext};
+use crate::runtime::{
+    context::GlobalEnv,
+    error::Result,
+    stack_frame::{LocalStack, StackContext},
+    EvalContext,
+};
 
 use super::Function;
 
@@ -50,6 +55,10 @@ impl<'a> NativeFunctionContext<'a> {
             global_context,
             local_stack,
         }
+    }
+
+    pub fn stack(&mut self) -> StackContext {
+        StackContext::new(self.global_context, self.local_stack)
     }
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {

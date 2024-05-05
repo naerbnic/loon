@@ -50,6 +50,13 @@ impl Value {
         }
     }
 
+    pub fn as_int(&self) -> Result<&Integer, RuntimeError> {
+        match self {
+            Value::Integer(i) => Ok(i),
+            _ => Err(RuntimeError::new_type_error("Value is not an integer.")),
+        }
+    }
+
     pub fn as_function(&self) -> Result<&Function, RuntimeError> {
         match self {
             Value::Function(f) => Ok(f),
@@ -57,10 +64,10 @@ impl Value {
         }
     }
 
-    pub fn as_int(&self) -> Result<&Integer, RuntimeError> {
+    pub fn as_list(&self) -> Result<&GcRef<List>, RuntimeError> {
         match self {
-            Value::Integer(i) => Ok(i),
-            _ => Err(RuntimeError::new_type_error("Value is not an integer.")),
+            Value::List(l) => Ok(l),
+            _ => Err(RuntimeError::new_type_error("Value is not a list.")),
         }
     }
 
