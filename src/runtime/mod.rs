@@ -28,13 +28,13 @@ impl TopLevelRuntime {
         }
     }
 
-    pub fn stack(&mut self) -> StackContext {
-        StackContext::new(&self.global_context, &mut self.stack)
+    pub fn stack(&self) -> StackContext {
+        StackContext::new(&self.global_context, &self.stack)
     }
 
     pub fn call_function(&mut self, num_args: u32) -> Result<u32> {
         let function = self.stack.pop()?;
-        let mut eval_context = EvalContext::new(&self.global_context, &mut self.stack);
+        let mut eval_context = EvalContext::new(&self.global_context, &self.stack);
         eval_context.run(function.as_function()?.clone(), num_args)
     }
 }
