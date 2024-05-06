@@ -11,7 +11,7 @@ use crate::{
         stack_frame::{LocalStack, StackFrame},
         value::Value,
     },
-    util::sequence::Sequence,
+    util::sequence::{wrap_iter, Sequence},
 };
 
 use self::managed::ManagedFunction;
@@ -29,7 +29,7 @@ impl BaseFunction {
     pub fn make_stack_frame(
         &self,
         args: impl Sequence<Value>,
-        mut local_stack: LocalStack,
+        local_stack: LocalStack,
     ) -> Result<StackFrame> {
         local_stack.push_sequence(args);
         match self {
@@ -142,14 +142,14 @@ impl Function {
     fn make_stack_frame_inner(
         &self,
         args: impl Sequence<Value>,
-        mut local_stack: LocalStack,
+        local_stack: LocalStack,
     ) -> Result<StackFrame> {
         match self {
             Function::Base(base) => {
                 base.with(|managed_func| managed_func.make_stack_frame(args, local_stack))
             }
             Function::Closure(closure) => closure.with(|closure| {
-                local_stack.push_iter(closure.captured_values.iter().cloned());
+                local_stack.push_sequence(wrap_iter(closure.captured_values.iter().cloned()));
                 let stack_frame = closure
                     .function
                     .try_with(move |f| f.make_stack_frame(args, local_stack))

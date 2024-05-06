@@ -60,11 +60,11 @@ impl LocalStack {
         }
     }
 
-    pub fn push(&mut self, value: Value) {
+    pub fn push(&self, value: Value) {
         self.stack.borrow_mut().push(value);
     }
 
-    pub fn pop(&mut self) -> Result<Value> {
+    pub fn pop(&self) -> Result<Value> {
         self.stack
             .borrow_mut()
             .pop()
@@ -99,12 +99,8 @@ impl LocalStack {
         })
     }
 
-    pub fn push_sequence(&mut self, iter: impl Sequence<Value>) {
+    pub fn push_sequence(&self, iter: impl Sequence<Value>) {
         iter.extend_into(&mut *self.stack.borrow_mut());
-    }
-
-    pub fn push_iter(&mut self, iter: impl IntoIterator<Item = Value>) {
-        self.stack.borrow_mut().extend(iter);
     }
 }
 
@@ -326,15 +322,11 @@ impl StackFrame {
         }
     }
 
-    pub fn push_sequence(&mut self, seq: impl Sequence<Value>) {
+    pub fn push_sequence(&self, seq: impl Sequence<Value>) {
         self.local_stack.push_sequence(seq);
     }
 
-    pub fn push_iter(&mut self, args: impl Iterator<Item = Value>) {
-        self.local_stack.push_iter(args);
-    }
-
-    pub fn drain_top_n(&mut self, len: u32) -> Result<LocalStackTop> {
+    pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
         self.local_stack.drain_top_n(len)
     }
 }

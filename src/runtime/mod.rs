@@ -61,7 +61,7 @@ impl<'a> EvalContext<'a> {
             let frame = self.call_stack.last_mut().unwrap();
             match frame.run_to_frame_change(self.global_context)? {
                 instructions::FrameChange::Return(num_returns) => {
-                    let mut prev_frame = self.call_stack.pop().expect("Call stack is empty.");
+                    let prev_frame = self.call_stack.pop().expect("Call stack is empty.");
                     match self.call_stack.last_mut() {
                         Some(frame) => {
                             frame.push_sequence(prev_frame.drain_top_n(num_returns)?);
