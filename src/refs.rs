@@ -5,7 +5,7 @@
 //! rather than performant, The
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
 };
 
@@ -70,8 +70,13 @@ where
     }
 }
 
-struct ContextInner {
-    live_objects: HashMap<PtrKey, Box<dyn ObjectInfo>>,
+type RootGatherer = Rc<dyn Fn(&mut GcRoots)>;
+
+struct EnvInner {
+    live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
+    root_gatherer: Option<RootGatherer>,
+    alloc_count: Cell<usize>,
+    alloc_count_limit: usize,
 }
 
 /// The main context object that manages a set of garbage collected objects.
@@ -80,16 +85,34 @@ struct ContextInner {
 /// by the garbage collector. Garbage collection happens only on demand
 /// through the `garbage_collect()` method.
 pub struct GcEnv {
-    inner: Rc<RefCell<ContextInner>>,
+    inner: Rc<EnvInner>,
 }
 
 impl GcEnv {
+    const DEFAULT_ALLOC_COUNT_LIMIT: usize = 100;
     /// Creates a new empty `GcContext`.
     pub fn new() -> Self {
         Self {
-            inner: Rc::new(RefCell::new(ContextInner {
-                live_objects: HashMap::new(),
-            })),
+            inner: Rc::new(EnvInner {
+                live_objects: RefCell::new(HashMap::new()),
+                root_gatherer: None,
+                alloc_count: Cell::new(0),
+                alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
+            }),
+        }
+    }
+
+    pub fn with_root_gatherer<F>(gatherer: F) -> Self
+    where
+        F: Fn(&mut GcRoots) + 'static,
+    {
+        Self {
+            inner: Rc::new(EnvInner {
+                live_objects: RefCell::new(HashMap::new()),
+                root_gatherer: Some(Rc::new(gatherer)),
+                alloc_count: Cell::new(0),
+                alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
+            }),
         }
     }
 
@@ -103,13 +126,22 @@ impl GcEnv {
     where
         T: GcTraceable + 'static,
     {
+        if let Some(gatherer) = &self.inner.root_gatherer {
+            if self.inner.alloc_count.get() >= self.inner.alloc_count_limit {
+                let mut roots = GcRoots::new();
+                gatherer(&mut roots);
+                self.garbage_collect(&roots);
+                self.inner.alloc_count.set(0);
+            }
+        }
+
         // We use the pointer as a key to the object in the HashMap.
         let ptr_id = PtrKey::from_rc(&obj);
 
         let obj_info = ObjectInfoImpl::new(obj);
         {
-            let mut inner = self.inner.borrow_mut();
-            inner.live_objects.insert(ptr_id, Box::new(obj_info));
+            let mut live_objects = self.inner.live_objects.borrow_mut();
+            live_objects.insert(ptr_id, Box::new(obj_info));
         }
     }
 
@@ -159,13 +191,13 @@ impl GcEnv {
     }
 
     pub fn garbage_collect(&self, roots: &GcRoots) {
-        let mut inner = self.inner.borrow_mut();
+        let mut live_objects = self.inner.live_objects.borrow_mut();
         let mut reachable = HashSet::new();
         let mut worklist: VecDeque<_> = roots.roots.iter().cloned().collect();
 
         while let Some(ptr_id) = worklist.pop_front() {
             if reachable.insert(ptr_id) {
-                if let Some(info) = inner.live_objects.get(&ptr_id) {
+                if let Some(info) = live_objects.get(&ptr_id) {
                     info.trace(&mut |key| {
                         if !reachable.contains(&key) {
                             worklist.push_back(key);
@@ -175,23 +207,13 @@ impl GcEnv {
             }
         }
 
-        inner.live_objects.retain(|key, _| reachable.contains(key));
+        live_objects.retain(|key, _| reachable.contains(key));
     }
 }
 
 impl Default for GcEnv {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-pub struct WeakRefContext {
-    inner: Weak<RefCell<ContextInner>>,
-}
-
-impl WeakRefContext {
-    pub fn upgrade(&self) -> Option<GcEnv> {
-        self.inner.upgrade().map(|inner| GcEnv { inner })
     }
 }
 
@@ -256,6 +278,16 @@ where
         Self {
             obj: self.obj.clone(),
         }
+    }
+}
+
+pub struct WeakRefContext {
+    inner: Weak<EnvInner>,
+}
+
+impl WeakRefContext {
+    pub fn upgrade(&self) -> Option<GcEnv> {
+        self.inner.upgrade().map(|inner| GcEnv { inner })
     }
 }
 
