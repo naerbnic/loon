@@ -147,10 +147,7 @@ impl<'a> StackContext<'a> {
     pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
         let function = self.stack.pop()?.as_function()?.clone();
         let captured_values = self.stack.drain_top_n(num_args)?;
-        let new_value = Value::Function(function.bind_front(
-            self.global_context,
-            captured_values,
-        ));
+        let new_value = Value::Function(function.bind_front(self.global_context, captured_values));
         self.stack.push(new_value);
         Ok(())
     }
@@ -167,6 +164,10 @@ impl<'a> StackContext<'a> {
 
     pub fn get_int(&self, index: StackIndex) -> Result<Integer> {
         Ok(self.stack.get_at_index(index)?.as_int()?.clone())
+    }
+
+    pub fn get_bool(&self, index: StackIndex) -> Result<bool> {
+        self.stack.get_at_index(index)?.as_bool()
     }
 
     pub fn pop_n(&mut self, n: usize) -> Result<()> {
