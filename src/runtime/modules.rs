@@ -122,3 +122,13 @@ impl Module {
         self.0.members.at(*index).cloned()
     }
 }
+
+impl GcTraceable for Module {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: crate::refs::GcRefVisitor,
+    {
+        self.0.module_globals.trace(visitor);
+        self.0.members.trace(visitor);
+    }
+}

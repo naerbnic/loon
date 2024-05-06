@@ -44,6 +44,17 @@ impl GcRefVisitor for PtrVisitor<'_> {
     }
 }
 
+struct RootsVisitor<'a>(&'a mut GcRoots);
+
+impl GcRefVisitor for RootsVisitor<'_> {
+    fn visit<T>(&mut self, obj: &GcRef<T>)
+    where
+        T: GcTraceable + 'static,
+    {
+        self.0.add(obj);
+    }
+}
+
 struct ObjectInfoImpl<T>(Rc<InnerType<T>>);
 
 impl<T> ObjectInfoImpl<T>
@@ -70,7 +81,7 @@ where
     }
 }
 
-type RootGatherer = Rc<dyn Fn(&mut GcRoots)>;
+type RootGatherer = Box<dyn Fn(&mut GcRoots)>;
 
 struct EnvInner {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
@@ -109,7 +120,7 @@ impl GcEnv {
         Self {
             inner: Rc::new(EnvInner {
                 live_objects: RefCell::new(HashMap::new()),
-                root_gatherer: Some(Rc::new(gatherer)),
+                root_gatherer: Some(Box::new(gatherer)),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
             }),
@@ -313,6 +324,13 @@ impl GcRoots {
         if let Some(key) = PtrKey::from_weak(&obj.obj) {
             self.roots.insert(key);
         }
+    }
+
+    pub fn visit<T>(&mut self, obj: &T)
+    where
+        T: GcTraceable + 'static,
+    {
+        obj.trace(&mut RootsVisitor(self));
     }
 }
 

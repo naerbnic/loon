@@ -1,13 +1,19 @@
 //! Global contexts for the current state of a runtime environment.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::{Rc, Weak},
+};
 
 use super::{
     constants::ValueTable,
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
     inst_set::{
-        Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, ListAppend, ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal, Return, ReturnDynamic, SetGlobal
+        Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, ListAppend,
+        ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal, Return,
+        ReturnDynamic, SetGlobal,
     },
     instructions::{InstEvalList, InstPtr},
     modules::{Module, ModuleGlobals},
@@ -33,10 +39,24 @@ pub struct GlobalEnv(Rc<Inner>);
 impl GlobalEnv {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        GlobalEnv(Rc::new(Inner {
-            gc_context: GcEnv::new(),
+        let inner_rc = Rc::new_cyclic(|inner_weak| Inner {
+            gc_context: GcEnv::with_root_gatherer({
+                let inner: Weak<Inner> = inner_weak.clone();
+                move |gc_roots| {
+                    let Some(inner) = inner.upgrade() else {
+                        return;
+                    };
+                    {
+                        let loaded_modules = inner.loaded_modules.borrow();
+                        for value in loaded_modules.values() {
+                            gc_roots.visit(value);
+                        }
+                    }
+                }
+            }),
             loaded_modules: RefCell::new(HashMap::new()),
-        }))
+        });
+        GlobalEnv(inner_rc)
     }
 
     pub fn create_ref<T>(&self, value: T) -> GcRef<T>
