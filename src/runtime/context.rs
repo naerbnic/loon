@@ -7,9 +7,7 @@ use super::{
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
     inst_set::{
-        Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, CallDynamic, ListAppend, ListGet,
-        ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal, Return, ReturnDynamic,
-        SetGlobal,
+        Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, ListAppend, ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal, Return, ReturnDynamic, SetGlobal
     },
     instructions::{InstEvalList, InstPtr},
     modules::{Module, ModuleGlobals},
@@ -94,7 +92,7 @@ impl GlobalEnv {
                     Instruction::Compare(_) => todo!(),
                     Instruction::Branch(target) => InstPtr::new(Branch::new(*target)),
                     Instruction::BranchIf(target) => InstPtr::new(BranchIf::new(*target)),
-                    Instruction::Call(_) => todo!(),
+                    Instruction::Call(i) => InstPtr::new(Call::new(*i)),
                     Instruction::CallDynamic => InstPtr::new(CallDynamic),
                     Instruction::Return(i) => InstPtr::new(Return::new(*i)),
                     Instruction::ReturnDynamic => InstPtr::new(ReturnDynamic),

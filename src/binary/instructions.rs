@@ -47,7 +47,6 @@ pub enum CompareOp {
 
 #[derive(Copy, Clone, Debug)]
 pub struct CallInstruction {
-    pub function: StackIndex,
     pub num_args: u32,
     pub num_returns: u32,
 }
