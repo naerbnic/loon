@@ -1,10 +1,10 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     binary::{instructions::StackIndex, modules::ImportSource},
     pure_values::Integer,
     runtime::value::NativeFunctionResult,
-    util::imm_string::ImmString,
+    util::{imm_string::ImmString, sequence::Sequence},
 };
 
 use super::{
@@ -50,48 +50,82 @@ impl InstState {
 }
 
 pub(crate) struct LocalStack {
-    stack: Vec<Value>,
+    stack: RefCell<Vec<Value>>,
 }
 
 impl LocalStack {
     pub fn new() -> Self {
-        LocalStack { stack: Vec::new() }
+        LocalStack {
+            stack: RefCell::new(Vec::new()),
+        }
     }
 
     pub fn push(&mut self, value: Value) {
-        self.stack.push(value);
+        self.stack.borrow_mut().push(value);
     }
 
     pub fn pop(&mut self) -> Result<Value> {
         self.stack
+            .borrow_mut()
             .pop()
             .ok_or_else(|| RuntimeError::new_operation_precondition_error("Local stack is empty."))
     }
 
-    pub fn get_at_index(&self, index: StackIndex) -> Result<&Value> {
+    pub fn get_at_index(&self, index: StackIndex) -> Result<Value> {
         let index = match index {
             StackIndex::FromTop(i) => self
                 .stack
+                .borrow()
                 .len()
                 .checked_sub((i as usize) + 1)
                 .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range"))?,
             StackIndex::FromBottom(i) => i as usize,
         };
         self.stack
+            .borrow()
             .get(index)
             .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range."))
+            .cloned()
     }
 
-    pub fn drain_top_n(&mut self, len: u32) -> Result<impl Iterator<Item = Value> + '_> {
+    pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
         let len = len as usize;
-        let start = self.stack.len().checked_sub(len).ok_or_else(|| {
+        let start = self.stack.borrow().len().checked_sub(len).ok_or_else(|| {
             RuntimeError::new_operation_precondition_error("Local stack is too small.")
         })?;
-        Ok(self.stack.drain(start..))
+        Ok(LocalStackTop {
+            source: self,
+            start,
+        })
+    }
+
+    pub fn push_sequence(&mut self, iter: impl Sequence<Value>) {
+        iter.extend_into(&mut *self.stack.borrow_mut());
     }
 
     pub fn push_iter(&mut self, iter: impl IntoIterator<Item = Value>) {
-        self.stack.extend(iter);
+        self.stack.borrow_mut().extend(iter);
+    }
+}
+
+pub struct LocalStackTop<'a> {
+    source: &'a LocalStack,
+    start: usize,
+}
+
+impl Sequence<Value> for LocalStackTop<'_> {
+    fn collect<T>(self) -> T
+    where
+        T: FromIterator<Value>,
+    {
+        self.source.stack.borrow_mut().drain(self.start..).collect()
+    }
+
+    fn extend_into<T>(self, target: &mut T)
+    where
+        T: Extend<Value>,
+    {
+        target.extend(self.source.stack.borrow_mut().drain(self.start..));
     }
 }
 
@@ -292,11 +326,15 @@ impl StackFrame {
         }
     }
 
+    pub fn push_sequence(&mut self, seq: impl Sequence<Value>) {
+        self.local_stack.push_sequence(seq);
+    }
+
     pub fn push_iter(&mut self, args: impl Iterator<Item = Value>) {
         self.local_stack.push_iter(args);
     }
 
-    pub fn drain_top_n(&mut self, len: u32) -> Result<impl Iterator<Item = Value> + '_> {
+    pub fn drain_top_n(&mut self, len: u32) -> Result<LocalStackTop> {
         self.local_stack.drain_top_n(len)
     }
 }

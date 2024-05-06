@@ -55,8 +55,7 @@ impl<'a> EvalContext<'a> {
     }
 
     fn run(&mut self, function: Function, num_args: u32) -> Result<u32> {
-        let stack_frame = function
-            .make_stack_frame(self.parent_stack.drain_top_n(num_args)?, LocalStack::new())?;
+        let stack_frame = function.make_stack_frame(self.parent_stack.drain_top_n(num_args)?)?;
         self.call_stack.push(stack_frame);
         loop {
             let frame = self.call_stack.last_mut().unwrap();
@@ -65,11 +64,11 @@ impl<'a> EvalContext<'a> {
                     let mut prev_frame = self.call_stack.pop().expect("Call stack is empty.");
                     match self.call_stack.last_mut() {
                         Some(frame) => {
-                            frame.push_iter(prev_frame.drain_top_n(num_returns)?);
+                            frame.push_sequence(prev_frame.drain_top_n(num_returns)?);
                         }
                         None => {
                             self.parent_stack
-                                .push_iter(prev_frame.drain_top_n(num_returns)?);
+                                .push_sequence(prev_frame.drain_top_n(num_returns)?);
                             return Ok(num_returns);
                         }
                     }
@@ -77,7 +76,7 @@ impl<'a> EvalContext<'a> {
                 instructions::FrameChange::Call(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame = function.make_stack_frame(args, LocalStack::new())?;
+                    let stack_frame = function.make_stack_frame(args)?;
                     self.call_stack.push(stack_frame);
                 }
             }

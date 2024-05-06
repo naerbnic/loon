@@ -11,6 +11,7 @@ use crate::{
         stack_frame::{LocalStack, StackFrame},
         value::Value,
     },
+    util::sequence::Sequence,
 };
 
 use self::managed::ManagedFunction;
@@ -27,10 +28,10 @@ pub enum BaseFunction {
 impl BaseFunction {
     pub fn make_stack_frame(
         &self,
-        args: impl IntoIterator<Item = Value>,
+        args: impl Sequence<Value>,
         mut local_stack: LocalStack,
     ) -> Result<StackFrame> {
-        local_stack.push_iter(args);
+        local_stack.push_sequence(args);
         match self {
             BaseFunction::Managed(managed_func) => Ok(StackFrame::new_managed(
                 managed_func.inst_list().clone(),
@@ -120,25 +121,27 @@ impl Function {
     pub fn bind_front(
         &self,
         global_env: &GlobalEnv,
-        captured_values: impl IntoIterator<Item = Value>,
+        captured_values: impl Sequence<Value>,
     ) -> Self {
         match self {
-            Function::Base(base) => Function::new_closure(
-                global_env,
-                base.clone(),
-                captured_values.into_iter().collect(),
-            ),
+            Function::Base(base) => {
+                Function::new_closure(global_env, base.clone(), captured_values.collect())
+            }
             Function::Closure(closure) => closure.with(|closure| {
                 let mut new_captured_values = closure.captured_values.clone();
-                new_captured_values.extend(captured_values);
+                captured_values.extend_into(&mut new_captured_values);
                 Function::new_closure(global_env, closure.function.clone(), new_captured_values)
             }),
         }
     }
 
-    pub fn make_stack_frame(
+    pub fn make_stack_frame(&self, args: impl Sequence<Value>) -> Result<StackFrame> {
+        self.make_stack_frame_inner(args, LocalStack::new())
+    }
+
+    fn make_stack_frame_inner(
         &self,
-        args: impl IntoIterator<Item = Value>,
+        args: impl Sequence<Value>,
         mut local_stack: LocalStack,
     ) -> Result<StackFrame> {
         match self {
@@ -147,7 +150,6 @@ impl Function {
             }
             Function::Closure(closure) => closure.with(|closure| {
                 local_stack.push_iter(closure.captured_values.iter().cloned());
-                let args = closure.captured_values.iter().cloned().chain(args);
                 let stack_frame = closure
                     .function
                     .try_with(move |f| f.make_stack_frame(args, local_stack))
