@@ -15,11 +15,7 @@ impl Return {
 }
 
 impl InstEval for Return {
-    fn execute(
-        &self,
-        _ctxt: &InstEvalContext,
-        _stack: &mut LocalStack,
-    ) -> Result<InstructionResult> {
+    fn execute(&self, _ctxt: &InstEvalContext, _stack: &LocalStack) -> Result<InstructionResult> {
         Ok(InstructionResult::Return(self.0))
     }
 }

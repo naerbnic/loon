@@ -127,11 +127,11 @@ impl Sequence<Value> for LocalStackTop<'_> {
 
 pub struct StackContext<'a> {
     global_context: &'a GlobalEnv,
-    stack: &'a mut LocalStack,
+    stack: &'a LocalStack,
 }
 
 impl<'a> StackContext<'a> {
-    pub(crate) fn new(global_context: &'a GlobalEnv, stack: &'a mut LocalStack) -> Self {
+    pub(crate) fn new(global_context: &'a GlobalEnv, stack: &'a LocalStack) -> Self {
         StackContext {
             global_context,
             stack,
@@ -209,28 +209,25 @@ impl<'a> StackContext<'a> {
 }
 
 struct ManagedFrameState {
-    inst_state: InstState,
+    inst_state: RefCell<InstState>,
     local_consts: ValueTable,
     module_globals: ModuleGlobals,
 }
 
 impl ManagedFrameState {
-    pub fn step(
-        &mut self,
-        ctxt: &GlobalEnv,
-        local_stack: &mut LocalStack,
-    ) -> Result<Option<FrameChange>> {
+    pub fn step(&self, ctxt: &GlobalEnv, local_stack: &LocalStack) -> Result<Option<FrameChange>> {
         let inst_eval_ctxt = InstEvalContext::new(ctxt, &self.local_consts, &self.module_globals);
-        let inst = self.inst_state.curr_inst();
+        let mut inst_state = self.inst_state.borrow_mut();
+        let inst = inst_state.curr_inst();
         let result = match inst.execute(&inst_eval_ctxt, local_stack)? {
             InstructionResult::Next(target) => {
-                self.inst_state.update_pc(target)?;
+                inst_state.update_pc(target)?;
                 None
             }
             InstructionResult::Return(num_values) => Some(FrameChange::Return(num_values)),
             InstructionResult::Call(func_call) => {
                 let function = func_call.function().clone();
-                self.inst_state.update_pc(func_call.return_target())?;
+                inst_state.update_pc(func_call.return_target())?;
                 let call = CallStepResult {
                     function,
                     num_args: func_call.num_args(),
@@ -242,9 +239,9 @@ impl ManagedFrameState {
     }
 
     pub fn run_to_frame_change(
-        &mut self,
+        &self,
         ctxt: &GlobalEnv,
-        local_stack: &mut LocalStack,
+        local_stack: &LocalStack,
     ) -> Result<FrameChange> {
         loop {
             if let Some(result) = self.step(ctxt, local_stack)? {
@@ -255,23 +252,23 @@ impl ManagedFrameState {
 }
 
 struct NativeFrameState {
-    native_func: NativeFunctionPtr,
+    native_func: RefCell<NativeFunctionPtr>,
 }
 
 impl NativeFrameState {
     pub fn run_to_frame_change(
-        &mut self,
+        &self,
         ctxt: &GlobalEnv,
-        local_stack: &mut LocalStack,
+        local_stack: &LocalStack,
     ) -> Result<FrameChange> {
         let ctxt = NativeFunctionContext::new(ctxt, local_stack);
-        match self.native_func.call(ctxt)?.0 {
+        match self.native_func.borrow().call(ctxt)?.0 {
             NativeFunctionResultInner::ReturnValue(num_values) => {
                 Ok(FrameChange::Return(num_values))
             }
             NativeFunctionResultInner::TailCall(_) => todo!(),
             NativeFunctionResultInner::CallWithContinuation(call) => {
-                self.native_func = call.continuation().clone();
+                *self.native_func.borrow_mut() = call.continuation().clone();
                 Ok(FrameChange::Call(CallStepResult {
                     function: call.function().clone(),
                     num_args: call.num_args(),
@@ -300,7 +297,7 @@ impl StackFrame {
     ) -> Self {
         StackFrame {
             frame_state: FrameState::Managed(ManagedFrameState {
-                inst_state: InstState::new(inst_list),
+                inst_state: RefCell::new(InstState::new(inst_list)),
                 local_consts,
                 module_globals,
             }),
@@ -310,15 +307,17 @@ impl StackFrame {
 
     pub fn new_native(native_func: NativeFunctionPtr, local_stack: LocalStack) -> Self {
         StackFrame {
-            frame_state: FrameState::Native(NativeFrameState { native_func }),
+            frame_state: FrameState::Native(NativeFrameState {
+                native_func: RefCell::new(native_func),
+            }),
             local_stack,
         }
     }
 
-    pub fn run_to_frame_change(&mut self, ctxt: &GlobalEnv) -> Result<FrameChange> {
-        match &mut self.frame_state {
-            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &mut self.local_stack),
-            FrameState::Native(state) => state.run_to_frame_change(ctxt, &mut self.local_stack),
+    pub fn run_to_frame_change(&self, ctxt: &GlobalEnv) -> Result<FrameChange> {
+        match &self.frame_state {
+            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &self.local_stack),
+            FrameState::Native(state) => state.run_to_frame_change(ctxt, &self.local_stack),
         }
     }
 

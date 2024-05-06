@@ -21,7 +21,7 @@ impl InstEval for Call {
     fn execute(
         &self,
         _ctxt: &InstEvalContext,
-        stack: &mut LocalStack,
+        stack: &LocalStack,
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
         let func = stack.pop()?.as_function()?.clone();
         Ok(InstructionResult::Call(FunctionCallResult::new(

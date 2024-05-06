@@ -12,7 +12,7 @@ impl InstEval for CallDynamic {
     fn execute(
         &self,
         _ctxt: &InstEvalContext,
-        stack: &mut LocalStack,
+        stack: &LocalStack,
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
         let func = stack.pop()?.as_function()?.clone();
         let num_args = stack.pop()?.as_compact_integer()?;

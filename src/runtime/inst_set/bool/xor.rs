@@ -10,11 +10,7 @@ use crate::runtime::{
 pub struct BoolXor;
 
 impl InstEval for BoolXor {
-    fn execute(
-        &self,
-        _ctxt: &InstEvalContext,
-        stack: &mut LocalStack,
-    ) -> Result<InstructionResult> {
+    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let b1 = stack.pop()?.as_bool()?;
         let b2 = stack.pop()?.as_bool()?;
         stack.push(Value::Bool(b1 ^ b2));

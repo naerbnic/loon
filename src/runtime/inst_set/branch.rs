@@ -18,11 +18,7 @@ impl Branch {
 }
 
 impl InstEval for Branch {
-    fn execute(
-        &self,
-        _ctxt: &InstEvalContext,
-        _stack: &mut LocalStack,
-    ) -> Result<InstructionResult> {
+    fn execute(&self, _ctxt: &InstEvalContext, _stack: &LocalStack) -> Result<InstructionResult> {
         Ok(InstructionResult::Next(InstructionTarget::Branch(
             self.0.target_index(),
         )))

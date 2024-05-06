@@ -15,11 +15,7 @@ impl Pop {
 }
 
 impl InstEval for Pop {
-    fn execute(
-        &self,
-        _ctxt: &InstEvalContext,
-        stack: &mut LocalStack,
-    ) -> Result<InstructionResult> {
+    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         for _ in 0..self.0 {
             stack.pop()?;
         }

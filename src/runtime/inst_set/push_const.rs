@@ -15,7 +15,7 @@ impl PushConst {
 }
 
 impl InstEval for PushConst {
-    fn execute(&self, ctxt: &InstEvalContext, stack: &mut LocalStack) -> Result<InstructionResult> {
+    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let value = ctxt.get_constant(self.0)?;
         stack.push(value);
         Ok(InstructionResult::Next(InstructionTarget::Step))

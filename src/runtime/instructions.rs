@@ -61,7 +61,7 @@ pub(crate) trait InstEval: std::fmt::Debug {
     fn execute(
         &self,
         ctxt: &InstEvalContext,
-        stack: &mut LocalStack,
+        stack: &LocalStack,
     ) -> Result<InstructionResult, RuntimeError>;
 }
 

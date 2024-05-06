@@ -46,11 +46,11 @@ pub enum NativeFunctionResultInner {
 
 pub struct NativeFunctionContext<'a> {
     global_context: &'a GlobalEnv,
-    local_stack: &'a mut LocalStack,
+    local_stack: &'a LocalStack,
 }
 
 impl<'a> NativeFunctionContext<'a> {
-    pub(crate) fn new(global_context: &'a GlobalEnv, local_stack: &'a mut LocalStack) -> Self {
+    pub(crate) fn new(global_context: &'a GlobalEnv, local_stack: &'a LocalStack) -> Self {
         NativeFunctionContext {
             global_context,
             local_stack,

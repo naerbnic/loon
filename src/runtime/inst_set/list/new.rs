@@ -10,7 +10,7 @@ use crate::runtime::{
 pub struct ListNew;
 
 impl InstEval for ListNew {
-    fn execute(&self, ctxt: &InstEvalContext, stack: &mut LocalStack) -> Result<InstructionResult> {
+    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let list = Value::List(ctxt.get_env().create_ref(List::new()));
         stack.push(list);
         Ok(InstructionResult::Next(InstructionTarget::Step))

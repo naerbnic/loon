@@ -15,7 +15,7 @@ impl PushGlobal {
 }
 
 impl InstEval for PushGlobal {
-    fn execute(&self, ctxt: &InstEvalContext, stack: &mut LocalStack) -> Result<InstructionResult> {
+    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let value = ctxt.get_global(self.0)?;
         stack.push(value);
         Ok(InstructionResult::Next(InstructionTarget::Step))

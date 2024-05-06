@@ -18,11 +18,7 @@ impl BranchIf {
 }
 
 impl InstEval for BranchIf {
-    fn execute(
-        &self,
-        _ctxt: &InstEvalContext,
-        stack: &mut LocalStack,
-    ) -> Result<InstructionResult> {
+    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let cond = stack.pop()?.as_bool()?;
         Ok(if cond {
             InstructionResult::Next(InstructionTarget::Branch(self.0.target_index()))

@@ -41,12 +41,12 @@ impl TopLevelRuntime {
 
 struct EvalContext<'a> {
     global_context: &'a GlobalEnv,
-    parent_stack: &'a mut LocalStack,
+    parent_stack: &'a LocalStack,
     call_stack: Vec<StackFrame>,
 }
 
 impl<'a> EvalContext<'a> {
-    pub fn new(global_context: &'a GlobalEnv, parent_stack: &'a mut LocalStack) -> Self {
+    pub fn new(global_context: &'a GlobalEnv, parent_stack: &'a LocalStack) -> Self {
         EvalContext {
             global_context,
             parent_stack,
