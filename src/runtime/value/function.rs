@@ -127,11 +127,12 @@ impl Function {
             Function::Base(base) => {
                 Function::new_closure(global_env, base.clone(), captured_values.collect())
             }
-            Function::Closure(closure) => closure.with(|closure| {
+            Function::Closure(closure) => {
+                let closure = closure.borrow();
                 let mut new_captured_values = closure.captured_values.clone();
                 captured_values.extend_into(&mut new_captured_values);
                 Function::new_closure(global_env, closure.function.clone(), new_captured_values)
-            }),
+            }
         }
     }
 
@@ -145,19 +146,17 @@ impl Function {
         local_stack: LocalStack,
     ) -> Result<StackFrame> {
         match self {
-            Function::Base(base) => {
-                base.with(|managed_func| managed_func.make_stack_frame(args, local_stack))
-            }
-            Function::Closure(closure) => closure.with(|closure| {
+            Function::Base(base) => base.borrow().make_stack_frame(args, local_stack),
+            Function::Closure(closure) => {
+                let closure = closure.borrow();
                 local_stack.push_sequence(wrap_iter(closure.captured_values.iter().cloned()));
                 let stack_frame = closure
                     .function
-                    .try_with(move |f| f.make_stack_frame(args, local_stack))
-                    .ok_or_else(|| {
-                        RuntimeError::new_internal_error("Function is not available.")
-                    })??;
+                    .try_borrow()
+                    .ok_or_else(|| RuntimeError::new_internal_error("Function is not available."))?
+                    .make_stack_frame(args, local_stack)?;
                 Ok(stack_frame)
-            }),
+            }
         }
     }
 }

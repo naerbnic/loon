@@ -141,12 +141,11 @@ mod tests {
 
         match resolved_values.at(1).unwrap() {
             Value::List(list) => {
-                list.with(|l| {
-                    assert_eq!(l.len(), 3);
-                    for i in 0..3 {
-                        assert_eq!(l.at(i).as_int().unwrap(), &42.into())
-                    }
-                });
+                let l = list.borrow();
+                assert_eq!(l.len(), 3);
+                for i in 0..3 {
+                    assert_eq!(l.at(i).as_int().unwrap(), &42.into())
+                }
             }
             _ => panic!("Expected integer value."),
         }

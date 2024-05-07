@@ -13,7 +13,8 @@ impl InstEval for ListAppend {
         let list_value = stack.pop()?;
         let list = list_value.as_list()?;
         let value = stack.pop()?;
-        list.with(|list| list.append(value));
+        let list = list.borrow();
+        list.append(value);
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }

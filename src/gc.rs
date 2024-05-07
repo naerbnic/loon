@@ -5,13 +5,75 @@
 //! rather than performant, The
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, RefCell, UnsafeCell},
     collections::{HashMap, HashSet, VecDeque},
+    mem::MaybeUninit,
 };
 
 use std::rc::{Rc, Weak};
 
-type InnerType<T> = RefCell<Option<T>>;
+struct InnerType<T> {
+    is_resolved: Cell<bool>,
+    contents: UnsafeCell<MaybeUninit<T>>,
+}
+
+impl<T> InnerType<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            is_resolved: Cell::new(true),
+            contents: UnsafeCell::new(MaybeUninit::new(value)),
+        }
+    }
+    pub fn new_empty() -> Self {
+        Self {
+            is_resolved: Cell::new(false),
+            contents: UnsafeCell::new(MaybeUninit::uninit()),
+        }
+    }
+    pub fn is_resolved(&self) -> bool {
+        self.is_resolved.get()
+    }
+
+    fn resolve_with(&self, value: T) -> Result<(), T> {
+        if self.is_resolved.get() {
+            Err(value)
+        } else {
+            // Safety: Since it has not been resolved, there must be no references
+            // to the contents of the inner type.
+            let cell_ref = unsafe { &mut *self.contents.get() };
+            cell_ref.write(value);
+            self.is_resolved.set(true);
+            Ok(())
+        }
+    }
+
+    fn try_as_ref(&self) -> Option<&T> {
+        if self.is_resolved.get() {
+            // Safety: Since it has been resolved, only other borrowed references
+            // can exist.
+            let uninit_cell = unsafe { &*self.contents.get() };
+
+            // Safety: Since it has been resolved, the value is initialized.
+            let resolved_ref = unsafe { uninit_cell.assume_init_ref() };
+            Some(resolved_ref)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T> Drop for InnerType<T> {
+    fn drop(&mut self) {
+        if self.is_resolved.get() {
+            // Safety: Since it has been resolved, only other borrowed references
+            // can exist.
+            let uninit_cell = unsafe { &mut *self.contents.get() };
+
+            // Safety: Since it has been resolved, the value is initialized.
+            unsafe { uninit_cell.assume_init_drop() };
+        }
+    }
+}
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 struct PtrKey(*const ());
@@ -71,7 +133,7 @@ where
     T: GcTraceable,
 {
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
-        if let Some(obj) = self.0.borrow().as_ref() {
+        if let Some(obj) = self.0.try_as_ref() {
             obj.trace(&mut PtrVisitor(ptr_visitor));
         }
     }
@@ -169,20 +231,19 @@ impl GcEnv {
         T: GcTraceable + 'static,
     {
         // We create a weakref that we can resurrect when needed.
-        let deferred_obj = Rc::new(RefCell::new(None));
+        let deferred_obj = Rc::new(InnerType::new_empty());
         let obj = Rc::downgrade(&deferred_obj);
         let weak_ctxt = self.downgrade();
         (GcRef { obj }, move |value| {
-            let ctxt = match weak_ctxt.upgrade() {
-                Some(ctxt) => ctxt,
-                None => return,
+            let Some(ctxt) = weak_ctxt.upgrade() else {
+                return;
             };
+
             {
-                let mut borrow = deferred_obj.borrow_mut();
-                if borrow.is_some() {
+                let result = deferred_obj.resolve_with(value);
+                if result.is_err() {
                     panic!("object was already resolved");
                 }
-                borrow.replace(value);
             }
             ctxt.accept_rc(deferred_obj);
         })
@@ -194,7 +255,7 @@ impl GcEnv {
     where
         T: GcTraceable + 'static,
     {
-        let owned_obj = Rc::new(RefCell::new(Some(value)));
+        let owned_obj = Rc::new(InnerType::new(value));
         let obj = Rc::downgrade(&owned_obj);
         self.accept_rc(owned_obj);
 
@@ -243,37 +304,19 @@ impl<T> GcRef<T>
 where
     T: GcTraceable + 'static,
 {
-    pub fn try_with_mut<F, R>(&self, body: F) -> Option<R>
-    where
-        F: FnOnce(&mut T) -> R,
-    {
+    pub fn try_borrow(&self) -> Option<GcRefGuard<T>> {
         let obj = self.obj.upgrade()?;
-        let mut obj = obj.borrow_mut();
-        Some(body(obj.as_mut()?))
+        if !obj.is_resolved() {
+            return None;
+        }
+        Some(GcRefGuard {
+            obj,
+            _phantom: std::marker::PhantomData,
+        })
     }
 
-    pub fn try_with<F, R>(&self, body: F) -> Option<R>
-    where
-        F: FnOnce(&T) -> R,
-    {
-        let obj = self.obj.upgrade()?;
-        let obj = obj.borrow();
-        Some(body(obj.as_ref()?))
-    }
-
-    pub fn with_mut<F, R>(&self, body: F) -> R
-    where
-        F: FnOnce(&mut T) -> R,
-    {
-        self.try_with_mut(body)
-            .expect("object was already destroyed")
-    }
-
-    pub fn with<F, R>(&self, body: F) -> R
-    where
-        F: FnOnce(&T) -> R,
-    {
-        self.try_with(body).expect("object was already destroyed")
+    pub fn borrow(&self) -> GcRefGuard<T> {
+        self.try_borrow().expect("object was not resolved")
     }
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
@@ -289,6 +332,25 @@ where
         Self {
             obj: self.obj.clone(),
         }
+    }
+}
+
+pub struct GcRefGuard<'a, T>
+where
+    T: GcTraceable + 'static,
+{
+    obj: Rc<InnerType<T>>,
+    _phantom: std::marker::PhantomData<&'a T>,
+}
+
+impl<T> std::ops::Deref for GcRefGuard<'_, T>
+where
+    T: GcTraceable + 'static,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.obj.try_as_ref().expect("object was still valid")
     }
 }
 
@@ -437,7 +499,7 @@ mod tests {
     fn test_ref_works() {
         let ctxt = GcEnv::new();
         let i_ref = ctxt.create_ref(4);
-        let val = i_ref.with(|i| *i);
+        let val = *i_ref.borrow();
         assert_eq!(val, 4);
     }
 
@@ -448,7 +510,7 @@ mod tests {
         let mut roots = GcRoots::new();
         roots.add(&i_ref);
         ctxt.garbage_collect(&roots);
-        let val = i_ref.with(|i| *i);
+        let val = *i_ref.borrow();
         assert_eq!(val, 4);
     }
 
@@ -457,7 +519,7 @@ mod tests {
         let ctxt = GcEnv::new();
         let i_ref = ctxt.create_ref(4);
         ctxt.garbage_collect(&GcRoots::new());
-        let val = i_ref.try_with_mut(|i| *i);
+        let val = i_ref.try_borrow();
         assert!(val.is_none());
     }
 

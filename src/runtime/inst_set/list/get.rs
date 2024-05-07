@@ -13,7 +13,8 @@ impl InstEval for ListGet {
         let list_value = stack.pop()?;
         let list = list_value.as_list()?;
         let index = stack.pop()?.as_compact_integer()?;
-        let elem = list.with(|list| list.at(index as usize));
+        let list = list.borrow();
+        let elem = list.at(index as usize);
         stack.push(elem);
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }

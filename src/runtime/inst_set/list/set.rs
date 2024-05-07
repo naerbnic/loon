@@ -11,10 +11,10 @@ pub struct ListSet;
 impl InstEval for ListSet {
     fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let list_value = stack.pop()?;
-        let list = list_value.as_list()?;
+        let list = list_value.as_list()?.borrow();
         let index = stack.pop()?.as_compact_integer()?;
         let elem = stack.pop()?;
-        list.with(|list| list.set(index as u32, elem))?;
+        list.set(index as u32, elem)?;
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }
