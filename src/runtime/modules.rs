@@ -9,7 +9,7 @@ use super::{
     context::ConstResolutionContext,
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
-    value::Value,
+    value::{Function, Value},
 };
 use crate::{
     binary::{modules::ModuleMemberId, ConstModule},
@@ -120,6 +120,21 @@ impl Module {
             .get(name)
             .ok_or_else(|| RuntimeError::new_internal_error("Export not found."))?;
         self.0.members.at(*index).cloned()
+    }
+
+    pub fn get_init_function(&self) -> Result<Option<Function>> {
+        if self.0.is_initialized.get() {
+            return Ok(None);
+        }
+        let index = self
+            .0
+            .initializer
+            .expect("Can only be uninitialized if there is an initializer.");
+        Ok(Some(self.0.members.at(index)?.as_function()?.clone()))
+    }
+
+    pub fn set_is_initialized(&self) {
+        self.0.is_initialized.set(true);
     }
 }
 

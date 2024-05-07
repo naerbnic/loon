@@ -15,7 +15,7 @@ use super::{
     instructions::{InstEvalList, InstPtr},
     modules::Module,
     top_level::TopLevelContents,
-    value::Value,
+    value::{Function, Value},
 };
 use crate::{
     binary::{
@@ -138,6 +138,23 @@ impl GlobalEnv {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(InstEvalList::from_inst_ptrs(result))
+    }
+
+    pub(super) fn get_init_function(&self, module_id: &ModuleId) -> Result<Option<Function>> {
+        let loaded_modules = self.0.loaded_modules.borrow();
+        loaded_modules
+            .get(module_id)
+            .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
+            .get_init_function()
+    }
+
+    pub(super) fn set_module_initialized(&self, module_id: &ModuleId) -> Result<()> {
+        let loaded_modules = self.0.loaded_modules.borrow();
+        loaded_modules
+            .get(module_id)
+            .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
+            .set_is_initialized();
+        Ok(())
     }
 
     pub(super) fn add_top_level_contents(&self, contents: TopLevelContents) {

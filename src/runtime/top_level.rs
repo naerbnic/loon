@@ -1,12 +1,13 @@
 use std::rc::{Rc, Weak};
 
-use crate::gc::GcTraceable;
+use crate::{binary::modules::ModuleId, gc::GcTraceable};
 
 use super::{
     error::Result,
     eval_context::EvalContext,
     global_env::GlobalEnv,
     stack_frame::{LocalStack, StackContext},
+    value::Value,
 };
 
 struct Inner {
@@ -47,6 +48,15 @@ impl TopLevelRuntime {
         let function = self.inner.stack.pop()?;
         let mut eval_context = EvalContext::new(&self.global_context, &self.inner.stack);
         eval_context.run(function.as_function()?.clone(), num_args)
+    }
+
+    pub fn init_module(&self, module_id: &ModuleId) -> Result<()> {
+        if let Some(init_func) = self.global_context.get_init_function(module_id)? {
+            self.inner.stack.push(Value::Function(init_func));
+            self.call_function(0)?;
+            self.global_context.set_module_initialized(module_id)?;
+        }
+        Ok(())
     }
 }
 
