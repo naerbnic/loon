@@ -25,12 +25,24 @@ use crate::{
         instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
-    gc::{GcEnv, GcRef, GcTraceable},
+    gc::{GcEnv, GcRef, GcRefVisitor, GcTraceable},
 };
 
 struct Inner {
     gc_context: GcEnv,
     loaded_modules: RefCell<HashMap<ModuleId, Module>>,
+}
+
+impl GcTraceable for Inner {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        let loaded_modules = self.loaded_modules.borrow();
+        for module in loaded_modules.values() {
+            module.trace(visitor);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -130,6 +142,15 @@ impl GlobalEnv {
         T: GcTraceable + 'static,
     {
         self.0.gc_context.create_deferred_ref()
+    }
+}
+
+impl GcTraceable for GlobalEnv {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.0.trace(visitor);
     }
 }
 

@@ -12,33 +12,12 @@ pub(super) mod error;
 pub(super) mod inst_set;
 pub(super) mod instructions;
 pub(super) mod modules;
-pub(super) mod stack_frame;
-pub(super) mod value;
 pub(super) mod stack;
+pub(super) mod stack_frame;
+pub(super) mod top_level;
+pub(super) mod value;
 
-pub struct TopLevelRuntime {
-    global_context: GlobalEnv,
-    stack: LocalStack,
-}
-
-impl TopLevelRuntime {
-    pub fn new(global_context: GlobalEnv) -> Self {
-        TopLevelRuntime {
-            global_context,
-            stack: LocalStack::new(),
-        }
-    }
-
-    pub fn stack(&self) -> StackContext {
-        StackContext::new(&self.global_context, &self.stack)
-    }
-
-    pub fn call_function(&mut self, num_args: u32) -> Result<u32> {
-        let function = self.stack.pop()?;
-        let mut eval_context = EvalContext::new(&self.global_context, &self.stack);
-        eval_context.run(function.as_function()?.clone(), num_args)
-    }
-}
+pub use top_level::TopLevelRuntime;
 
 struct EvalContext<'a> {
     global_context: &'a GlobalEnv,
