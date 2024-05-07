@@ -4,8 +4,8 @@ use crate::{
     gc::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable,
-        context::GlobalEnv,
         error::{Result, RuntimeError},
+        global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
         stack_frame::{LocalStack, StackFrame},

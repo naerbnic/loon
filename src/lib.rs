@@ -1,6 +1,6 @@
 pub mod binary;
-pub mod pure_values;
 mod gc;
+pub mod pure_values;
 pub mod runtime;
 mod util;
 
@@ -13,7 +13,7 @@ mod tests {
             ModuleBuilder,
         },
         pure_values::Integer,
-        runtime::{context::GlobalEnv, TopLevelRuntime},
+        runtime::{global_env::GlobalEnv, TopLevelRuntime},
     };
 
     #[test]

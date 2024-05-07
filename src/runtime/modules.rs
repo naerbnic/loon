@@ -4,17 +4,17 @@ use std::{
     rc::Rc,
 };
 
-use crate::{
-    binary::{self, modules::ModuleMemberId},
-    gc::{GcRef, GcTraceable},
-};
-
 use super::{
     constants::ValueTable,
-    context::{ConstResolutionContext, GlobalEnv},
+    context::ConstResolutionContext,
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
     value::Value,
+};
+use crate::{
+    binary::{modules::ModuleMemberId, ConstModule},
+    gc::{GcRef, GcTraceable},
+    runtime::global_env::GlobalEnv,
 };
 
 pub struct ModuleGlobalsInner {
@@ -91,7 +91,7 @@ struct Inner {
 pub struct Module(Rc<Inner>);
 
 impl Module {
-    pub fn from_binary(ctxt: &GlobalEnv, module: &binary::modules::ConstModule) -> Result<Self> {
+    pub fn from_binary(ctxt: &GlobalEnv, module: &ConstModule) -> Result<Self> {
         // Resolve imports
         let import_values = module
             .imports()

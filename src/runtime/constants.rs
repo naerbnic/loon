@@ -82,10 +82,11 @@ impl GcTraceable for ValueTable {
 
 #[cfg(test)]
 mod tests {
+    use crate::runtime::global_env::GlobalEnv;
     use crate::{
         binary::const_table::{ConstIndex, ConstValue},
         pure_values::Float,
-        runtime::{context::GlobalEnv, modules::ModuleGlobals},
+        runtime::modules::ModuleGlobals,
     };
 
     use super::*;

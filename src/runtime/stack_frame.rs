@@ -10,8 +10,9 @@ use crate::{
 
 use super::{
     constants::ValueTable,
-    context::{GlobalEnv, InstEvalContext},
+    context::InstEvalContext,
     error::{Result, RuntimeError},
+    global_env::GlobalEnv,
     instructions::{
         CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
     },

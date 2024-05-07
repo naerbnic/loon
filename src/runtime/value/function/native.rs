@@ -5,12 +5,13 @@ use std::rc::Rc;
 use crate::{
     gc::GcTraceable,
     runtime::{
-        context::GlobalEnv,
         error::Result,
+        global_env::GlobalEnv,
         stack_frame::{LocalStack, StackContext},
         EvalContext,
     },
 };
+
 
 use super::Function;
 

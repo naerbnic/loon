@@ -1,14 +1,15 @@
 use self::{
-    context::GlobalEnv,
     error::Result,
-    stack_frame::{LocalStack, StackContext, StackFrame},
+    stack_frame::{LocalStack, StackFrame},
     value::Function,
 };
+use crate::runtime::global_env::GlobalEnv;
 
 pub(super) mod constants;
 pub(super) mod context;
 pub(super) mod environment;
 pub(super) mod error;
+pub(super) mod global_env;
 pub(super) mod inst_set;
 pub(super) mod instructions;
 pub(super) mod modules;
