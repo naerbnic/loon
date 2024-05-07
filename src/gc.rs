@@ -175,7 +175,7 @@ impl GcEnv {
         }
     }
 
-    pub fn with_root_gatherer<F>(gatherer: F) -> Self
+    pub fn with_root_gatherer<F>(alloc_limit: usize, gatherer: F) -> Self
     where
         F: Fn(&mut GcRoots) + 'static,
     {
@@ -184,7 +184,7 @@ impl GcEnv {
                 live_objects: RefCell::new(HashMap::new()),
                 root_gatherer: Some(Box::new(gatherer)),
                 alloc_count: Cell::new(0),
-                alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
+                alloc_count_limit: alloc_limit,
             }),
         }
     }

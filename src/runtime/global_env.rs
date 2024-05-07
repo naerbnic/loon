@@ -55,7 +55,7 @@ impl GlobalEnv {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let inner_rc = Rc::new_cyclic(|inner_weak| Inner {
-            gc_context: GcEnv::with_root_gatherer({
+            gc_context: GcEnv::with_root_gatherer(1, {
                 let inner: Weak<Inner> = inner_weak.clone();
                 move |gc_roots| {
                     let Some(inner) = inner.upgrade() else {
