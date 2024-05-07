@@ -13,6 +13,7 @@ use super::{
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
+    top_level::TopLevelContents,
     value::Value,
 };
 use crate::{
@@ -27,6 +28,7 @@ use crate::{
 struct Inner {
     gc_context: GcEnv,
     loaded_modules: RefCell<HashMap<ModuleId, Module>>,
+    top_level_contents: RefCell<HashMap<*const (), TopLevelContents>>,
 }
 
 impl GcTraceable for Inner {
@@ -37,6 +39,9 @@ impl GcTraceable for Inner {
         let loaded_modules = self.loaded_modules.borrow();
         for module in loaded_modules.values() {
             module.trace(visitor);
+        }
+        for contents in self.top_level_contents.borrow().values() {
+            contents.trace(visitor);
         }
     }
 }
@@ -63,6 +68,7 @@ impl GlobalEnv {
                 }
             }),
             loaded_modules: RefCell::new(HashMap::new()),
+            top_level_contents: RefCell::new(HashMap::new()),
         });
         GlobalEnv(inner_rc)
     }
@@ -128,6 +134,20 @@ impl GlobalEnv {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(InstEvalList::from_inst_ptrs(result))
+    }
+
+    pub(super) fn add_top_level_contents(&self, contents: TopLevelContents) {
+        self.0
+            .top_level_contents
+            .borrow_mut()
+            .insert(contents.get_ptr(), contents);
+    }
+
+    pub(super) fn remove_top_level_contents(&self, contents: TopLevelContents) {
+        self.0
+            .top_level_contents
+            .borrow_mut()
+            .remove(&contents.get_ptr());
     }
 }
 

@@ -1,10 +1,3 @@
-use self::{
-    error::Result,
-    stack_frame::{LocalStack, StackFrame},
-    value::Function,
-};
-use crate::runtime::global_env::GlobalEnv;
-
 pub(super) mod constants;
 pub(super) mod context;
 pub(super) mod environment;
