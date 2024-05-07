@@ -17,8 +17,7 @@ mod function;
 mod list;
 pub use self::function::native::NativeFunctionResult;
 pub(crate) use function::native::{
-    CallWithContinuation, NativeFunctionContext, NativeFunctionPtr, NativeFunctionResultInner,
-    TailCall,
+    NativeFunctionContext, NativeFunctionPtr, NativeFunctionResultInner,
 };
 pub(crate) use function::Function;
 pub(crate) use list::List;
@@ -68,6 +67,13 @@ impl Value {
         match self {
             Value::List(l) => Ok(l),
             _ => Err(RuntimeError::new_type_error("Value is not a list.")),
+        }
+    }
+
+    pub fn as_str(&self) -> Result<&ImmString, RuntimeError> {
+        match self {
+            Value::String(s) => Ok(s),
+            _ => Err(RuntimeError::new_type_error("Value is not a string.")),
         }
     }
 

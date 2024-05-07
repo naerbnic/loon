@@ -222,6 +222,13 @@ impl<'a> StackContext<'a> {
         self.stack.get_at_index(index)?.as_bool()
     }
 
+    pub fn get_string<F, R>(&self, index: StackIndex, body: F) -> Result<R>
+    where
+        F: FnOnce(&str) -> Result<R>,
+    {
+        body(self.stack.get_at_index(index)?.as_str()?)
+    }
+
     pub fn pop_n(&mut self, n: usize) -> Result<()> {
         for _ in 0..n {
             self.stack.pop()?;
