@@ -2,11 +2,14 @@
 
 use std::rc::Rc;
 
-use crate::runtime::{
-    context::GlobalEnv,
-    error::Result,
-    stack_frame::{LocalStack, StackContext},
-    EvalContext,
+use crate::{
+    gc::GcTraceable,
+    runtime::{
+        context::GlobalEnv,
+        error::Result,
+        stack_frame::{LocalStack, StackContext},
+        EvalContext,
+    },
 };
 
 use super::Function;
@@ -120,5 +123,14 @@ impl NativeFunctionPtr {
 
     pub fn call(&self, ctxt: NativeFunctionContext) -> Result<NativeFunctionResult> {
         self.0.call(ctxt)
+    }
+}
+
+impl GcTraceable for NativeFunctionPtr {
+    fn trace<V>(&self, _visitor: &mut V)
+    where
+        V: crate::gc::GcRefVisitor,
+    {
+        // Nothing to trace here
     }
 }

@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use crate::{
     binary::ConstValue,
-    pure_values::{Float, Integer},
     gc::{GcRef, GcRefVisitor, GcTraceable},
+    pure_values::{Float, Integer},
     util::imm_string::ImmString,
 };
 
@@ -95,7 +95,7 @@ impl GcTraceable for Value {
     {
         match self {
             Value::Integer(_) | Value::Float(_) | Value::String(_) | Value::Bool(_) => {}
-            Value::List(l) => visitor.visit(l),
+            Value::List(l) => l.trace(visitor),
             Value::Function(f) => f.trace(visitor),
         }
     }

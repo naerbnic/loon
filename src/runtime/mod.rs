@@ -14,6 +14,7 @@ pub(super) mod instructions;
 pub(super) mod modules;
 pub(super) mod stack_frame;
 pub(super) mod value;
+pub(super) mod stack;
 
 pub struct TopLevelRuntime {
     global_context: GlobalEnv,

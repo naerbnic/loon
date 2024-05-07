@@ -2,6 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     binary::{instructions::StackIndex, modules::ImportSource},
+    gc::{GcRefVisitor, GcTraceable},
     pure_values::Integer,
     runtime::value::NativeFunctionResult,
     util::{imm_string::ImmString, sequence::Sequence},
@@ -46,6 +47,15 @@ impl InstState {
         }
         self.pc = next_pc;
         Ok(())
+    }
+}
+
+impl GcTraceable for InstState {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.inst_list.trace(visitor);
     }
 }
 
@@ -101,6 +111,17 @@ impl LocalStack {
 
     pub fn push_sequence(&self, iter: impl Sequence<Value>) {
         iter.extend_into(&mut *self.stack.borrow_mut());
+    }
+}
+
+impl GcTraceable for LocalStack {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        for value in self.stack.borrow().iter() {
+            value.trace(visitor);
+        }
     }
 }
 
@@ -251,6 +272,17 @@ impl ManagedFrameState {
     }
 }
 
+impl GcTraceable for ManagedFrameState {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.inst_state.borrow().trace(visitor);
+        self.local_consts.trace(visitor);
+        self.module_globals.trace(visitor);
+    }
+}
+
 struct NativeFrameState {
     native_func: RefCell<NativeFunctionPtr>,
 }
@@ -278,9 +310,30 @@ impl NativeFrameState {
     }
 }
 
+impl GcTraceable for NativeFrameState {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.native_func.borrow().trace(visitor);
+    }
+}
+
 enum FrameState {
     Managed(ManagedFrameState),
     Native(NativeFrameState),
+}
+
+impl GcTraceable for FrameState {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        match self {
+            FrameState::Managed(state) => state.trace(visitor),
+            FrameState::Native(state) => state.trace(visitor),
+        }
+    }
 }
 
 pub struct StackFrame {
@@ -327,5 +380,15 @@ impl StackFrame {
 
     pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
         self.local_stack.drain_top_n(len)
+    }
+}
+
+impl GcTraceable for StackFrame {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.frame_state.trace(visitor);
+        self.local_stack.trace(visitor);
     }
 }

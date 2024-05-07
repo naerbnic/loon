@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::gc::{GcRefVisitor, GcTraceable};
+
 use super::{
     context::InstEvalContext, error::RuntimeError, stack_frame::LocalStack, value::Function,
 };
@@ -101,6 +103,14 @@ impl InstEvalList {
 impl FromIterator<InstPtr> for InstEvalList {
     fn from_iter<T: IntoIterator<Item = InstPtr>>(iter: T) -> Self {
         InstEvalList(FromIterator::from_iter(iter))
+    }
+}
+
+impl GcTraceable for InstEvalList {
+    fn trace<V>(&self, _visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
     }
 }
 

@@ -335,6 +335,18 @@ where
     }
 }
 
+impl<T> GcTraceable for GcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        visitor.visit(self);
+    }
+}
+
 pub struct GcRefGuard<'a, T>
 where
     T: GcTraceable + 'static,
