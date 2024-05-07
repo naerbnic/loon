@@ -2,7 +2,7 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use crate::{binary::const_table::ConstValue, refs::GcTraceable};
+use crate::{binary::const_table::ConstValue, gc::GcTraceable};
 
 use super::{
     context::ConstResolutionContext,
@@ -72,7 +72,7 @@ impl ValueTable {
 impl GcTraceable for ValueTable {
     fn trace<V>(&self, visitor: &mut V)
     where
-        V: crate::refs::GcRefVisitor,
+        V: crate::gc::GcRefVisitor,
     {
         for value in self.0.iter() {
             value.trace(visitor);

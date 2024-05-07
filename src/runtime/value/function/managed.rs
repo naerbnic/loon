@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use crate::{
-    refs::{GcRefVisitor, GcTraceable},
+    gc::{GcRefVisitor, GcTraceable},
     runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals},
 };
 

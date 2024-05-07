@@ -25,7 +25,7 @@ use crate::{
         instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
-    refs::{GcEnv, GcRef, GcTraceable},
+    gc::{GcEnv, GcRef, GcTraceable},
 };
 
 struct Inner {

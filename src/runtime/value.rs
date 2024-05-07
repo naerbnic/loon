@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     binary::ConstValue,
     pure_values::{Float, Integer},
-    refs::{GcRef, GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable},
     util::imm_string::ImmString,
 };
 

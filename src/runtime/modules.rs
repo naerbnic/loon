@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     binary::{self, modules::ModuleMemberId},
-    refs::{GcRef, GcTraceable},
+    gc::{GcRef, GcTraceable},
 };
 
 use super::{
@@ -24,7 +24,7 @@ pub struct ModuleGlobalsInner {
 impl GcTraceable for ModuleGlobalsInner {
     fn trace<V>(&self, visitor: &mut V)
     where
-        V: crate::refs::GcRefVisitor,
+        V: crate::gc::GcRefVisitor,
     {
         for value in self.values.iter() {
             if let Some(value) = &*value.borrow() {
@@ -74,7 +74,7 @@ impl ModuleGlobals {
 impl GcTraceable for ModuleGlobals {
     fn trace<V>(&self, visitor: &mut V)
     where
-        V: crate::refs::GcRefVisitor,
+        V: crate::gc::GcRefVisitor,
     {
         visitor.visit(&self.0);
     }
@@ -126,7 +126,7 @@ impl Module {
 impl GcTraceable for Module {
     fn trace<V>(&self, visitor: &mut V)
     where
-        V: crate::refs::GcRefVisitor,
+        V: crate::gc::GcRefVisitor,
     {
         self.0.module_globals.trace(visitor);
         self.0.members.trace(visitor);

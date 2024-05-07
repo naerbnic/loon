@@ -1,6 +1,6 @@
 pub mod binary;
 pub mod pure_values;
-mod refs;
+mod gc;
 pub mod runtime;
 mod util;
 

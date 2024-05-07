@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    refs::{GcRef, GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable,
         context::GlobalEnv,

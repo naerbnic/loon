@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use crate::{
-    refs::{GcRefVisitor, GcTraceable},
+    gc::{GcRefVisitor, GcTraceable},
     runtime::{
         error::{Result, RuntimeError},
         value::Value,
