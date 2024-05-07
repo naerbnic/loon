@@ -4,9 +4,9 @@ use crate::gc::GcTraceable;
 
 use super::{
     error::Result,
+    eval_context::EvalContext,
     global_env::GlobalEnv,
     stack_frame::{LocalStack, StackContext},
-    EvalContext,
 };
 
 struct Inner {
