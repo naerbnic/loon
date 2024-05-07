@@ -30,7 +30,7 @@ mod tests {
         let global_env = GlobalEnv::new();
         global_env.load_module(module_id.clone(), &module)?;
 
-        let mut top_level = TopLevelRuntime::new(global_env);
+        let top_level = TopLevelRuntime::new(global_env);
         {
             let mut stack = top_level.stack();
             stack.push_int(1);
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn simple_native_function_test() -> anyhow::Result<()> {
         let global_env = GlobalEnv::new();
-        let mut top_level = TopLevelRuntime::new(global_env);
+        let top_level = TopLevelRuntime::new(global_env);
         {
             let mut stack = top_level.stack();
             stack.push_int(1);
