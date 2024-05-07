@@ -113,12 +113,6 @@ pub enum Instruction {
     ReturnDynamic,
 }
 
-impl Instruction {
-    pub fn validate(&self) -> Result<()> {
-        Ok(())
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct InstructionList(Rc<Vec<Instruction>>);
 

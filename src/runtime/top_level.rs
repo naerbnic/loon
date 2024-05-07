@@ -1,6 +1,9 @@
 use std::rc::{Rc, Weak};
 
-use crate::gc::GcTraceable;
+use crate::{
+    binary::{modules::ModuleId, ConstModule},
+    gc::GcTraceable,
+};
 
 use super::{
     error::Result,
@@ -43,7 +46,7 @@ impl TopLevelRuntime {
         StackContext::new(&self.global_context, &self.inner.stack)
     }
 
-    pub fn call_function(&mut self, num_args: u32) -> Result<u32> {
+    pub fn call_function(&self, num_args: u32) -> Result<u32> {
         let function = self.inner.stack.pop()?;
         let mut eval_context = EvalContext::new(&self.global_context, &self.inner.stack);
         eval_context.run(function.as_function()?.clone(), num_args)
