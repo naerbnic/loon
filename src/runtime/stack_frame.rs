@@ -337,10 +337,13 @@ impl GcTraceable for FrameState {
     }
 }
 
-pub struct StackFrame {
+struct Inner {
     frame_state: FrameState,
     local_stack: LocalStack,
 }
+
+#[derive(Clone)]
+pub struct StackFrame(Rc<Inner>);
 
 impl StackFrame {
     pub fn new_managed(
@@ -349,38 +352,38 @@ impl StackFrame {
         module_globals: ModuleGlobals,
         local_stack: LocalStack,
     ) -> Self {
-        StackFrame {
+        StackFrame(Rc::new(Inner {
             frame_state: FrameState::Managed(ManagedFrameState {
                 inst_state: RefCell::new(InstState::new(inst_list)),
                 local_consts,
                 module_globals,
             }),
             local_stack,
-        }
+        }))
     }
 
     pub fn new_native(native_func: NativeFunctionPtr, local_stack: LocalStack) -> Self {
-        StackFrame {
+        StackFrame(Rc::new(Inner {
             frame_state: FrameState::Native(NativeFrameState {
                 native_func: RefCell::new(native_func),
             }),
             local_stack,
-        }
+        }))
     }
 
     pub fn run_to_frame_change(&self, ctxt: &GlobalEnv) -> Result<FrameChange> {
-        match &self.frame_state {
-            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &self.local_stack),
-            FrameState::Native(state) => state.run_to_frame_change(ctxt, &self.local_stack),
+        match &self.0.frame_state {
+            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &self.0.local_stack),
+            FrameState::Native(state) => state.run_to_frame_change(ctxt, &self.0.local_stack),
         }
     }
 
     pub fn push_sequence(&self, seq: impl Sequence<Value>) {
-        self.local_stack.push_sequence(seq);
+        self.0.local_stack.push_sequence(seq);
     }
 
     pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
-        self.local_stack.drain_top_n(len)
+        self.0.local_stack.drain_top_n(len)
     }
 }
 
@@ -389,7 +392,7 @@ impl GcTraceable for StackFrame {
     where
         V: GcRefVisitor,
     {
-        self.frame_state.trace(visitor);
-        self.local_stack.trace(visitor);
+        self.0.frame_state.trace(visitor);
+        self.0.local_stack.trace(visitor);
     }
 }

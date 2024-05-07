@@ -6,6 +6,7 @@ use std::{
 
 use super::{
     error::{Result, RuntimeError},
+    eval_context::EvalContextContents,
     inst_set::{
         Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, ListAppend,
         ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal, Return,
@@ -29,6 +30,7 @@ struct Inner {
     gc_context: GcEnv,
     loaded_modules: RefCell<HashMap<ModuleId, Module>>,
     top_level_contents: RefCell<HashMap<*const (), TopLevelContents>>,
+    eval_context_contents: RefCell<HashMap<*const (), EvalContextContents>>,
 }
 
 impl GcTraceable for Inner {
@@ -69,6 +71,7 @@ impl GlobalEnv {
             }),
             loaded_modules: RefCell::new(HashMap::new()),
             top_level_contents: RefCell::new(HashMap::new()),
+            eval_context_contents: RefCell::new(HashMap::new()),
         });
         GlobalEnv(inner_rc)
     }
@@ -146,6 +149,20 @@ impl GlobalEnv {
     pub(super) fn remove_top_level_contents(&self, contents: TopLevelContents) {
         self.0
             .top_level_contents
+            .borrow_mut()
+            .remove(&contents.get_ptr());
+    }
+
+    pub(super) fn add_eval_context_contents(&self, contents: EvalContextContents) {
+        self.0
+            .eval_context_contents
+            .borrow_mut()
+            .insert(contents.get_ptr(), contents);
+    }
+
+    pub(super) fn remove_eval_context_contents(&self, contents: EvalContextContents) {
+        self.0
+            .eval_context_contents
             .borrow_mut()
             .remove(&contents.get_ptr());
     }
