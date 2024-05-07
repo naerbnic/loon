@@ -77,6 +77,13 @@ impl<'a> EvalContext<'a> {
                     let stack_frame = function.make_stack_frame(args)?;
                     self.inner.call_stack.borrow_mut().push(stack_frame);
                 }
+                FrameChange::TailCall(call) => {
+                    let function = call.function;
+                    let args = frame.drain_top_n(call.num_args)?;
+                    let stack_frame = function.make_stack_frame(args)?;
+                    self.inner.call_stack.borrow_mut().pop();
+                    self.inner.call_stack.borrow_mut().push(stack_frame);
+                }
             }
         }
     }

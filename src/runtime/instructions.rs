@@ -52,6 +52,10 @@ pub enum InstructionResult {
     /// followed by an integer representing the number of arguments, followed by
     /// the arguments. The value is the index of the instruction to return to.
     Call(FunctionCallResult),
+
+    /// Call a function in tail position, returning from the current function
+    /// with the results of the called function.
+    TailCall(FunctionCallResult),
 }
 
 /// An object that can be executed as an instruction.
@@ -122,4 +126,5 @@ pub struct CallStepResult {
 pub enum FrameChange {
     Return(u32),
     Call(CallStepResult),
+    TailCall(CallStepResult),
 }

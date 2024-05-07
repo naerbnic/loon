@@ -1,9 +1,6 @@
 use std::rc::{Rc, Weak};
 
-use crate::{
-    binary::{modules::ModuleId, ConstModule},
-    gc::GcTraceable,
-};
+use crate::gc::GcTraceable;
 
 use super::{
     error::Result,

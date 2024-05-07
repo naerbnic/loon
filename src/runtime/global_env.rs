@@ -10,7 +10,7 @@ use super::{
     inst_set::{
         Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, ListAppend,
         ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal, Return,
-        ReturnDynamic, SetGlobal,
+        ReturnDynamic, SetGlobal, TailCall,
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
@@ -133,6 +133,7 @@ impl GlobalEnv {
                     Instruction::CallDynamic => InstPtr::new(CallDynamic),
                     Instruction::Return(i) => InstPtr::new(Return::new(*i)),
                     Instruction::ReturnDynamic => InstPtr::new(ReturnDynamic),
+                    Instruction::TailCall(i) => InstPtr::new(TailCall::new(*i)),
                 })
             })
             .collect::<Result<Vec<_>>>()?;

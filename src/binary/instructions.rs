@@ -111,6 +111,10 @@ pub enum Instruction {
     /// Returns from a function. The top of the stack must be an integer
     /// representing the number of return values, followed by the return values.
     ReturnDynamic,
+
+    /// Calls a function, and returns from the current function with the return
+    /// values of the called function.
+    TailCall(u32),
 }
 
 #[derive(Clone, Debug)]

@@ -256,6 +256,10 @@ impl ManagedFrameState {
                 };
                 Some(FrameChange::Call(call))
             }
+            InstructionResult::TailCall(func_call) => Some(FrameChange::TailCall(CallStepResult {
+                function: func_call.function().clone(),
+                num_args: func_call.num_args(),
+            })),
         };
         Ok(result)
     }
