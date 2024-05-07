@@ -5,7 +5,10 @@ use std::rc::Rc;
 use crate::{
     gc::GcTraceable,
     runtime::{
-        error::Result, eval_context::EvalContext, global_env::GlobalEnv, stack_frame::{LocalStack, StackContext}
+        error::Result,
+        eval_context::EvalContext,
+        global_env::GlobalEnv,
+        stack_frame::{LocalStack, StackContext},
     },
 };
 
