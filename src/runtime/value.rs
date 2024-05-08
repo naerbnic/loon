@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    binary::ConstValue,
+    binary::{ConstIndex, ConstValue},
     gc::{GcRef, GcRefVisitor, GcTraceable},
     pure_values::{Float, Integer},
     util::imm_string::ImmString,
@@ -10,6 +10,7 @@ use crate::{
 use super::{
     constants::{ConstLoader, ResolveFunc, ValueTable},
     context::ConstResolutionContext,
+    environment::ModuleImportEnvironment,
     error::RuntimeError,
 };
 
@@ -106,6 +107,19 @@ impl GcTraceable for Value {
         }
     }
 }
+fn resolve_index(
+    const_index: &ConstIndex,
+    imports: &ModuleImportEnvironment,
+    consts: &[Value],
+) -> Result<Value, RuntimeError> {
+    match const_index {
+        ConstIndex::ModuleConst(index) => consts
+            .get(usize::try_from(*index).unwrap())
+            .cloned()
+            .ok_or_else(|| RuntimeError::new_internal_error("Invalid index.")),
+        ConstIndex::ModuleImport(index) => imports.get_import(*index),
+    }
+}
 
 impl ConstLoader for ConstValue {
     fn load<'a>(
@@ -122,7 +136,7 @@ impl ConstLoader for ConstValue {
                 let resolver: ResolveFunc = Box::new(move |imports, vs| {
                     let mut list_elems = Vec::with_capacity(list.len());
                     for index in list {
-                        list_elems.push(index.resolve(imports, vs)?);
+                        list_elems.push(resolve_index(index, imports, vs)?);
                     }
                     resolve_fn(List::from_iter(list_elems));
                     Ok(())
@@ -144,7 +158,7 @@ impl ConstLoader for ConstValue {
                     let mut resolved_func_consts =
                         Vec::with_capacity(const_func.module_constants().len());
                     for index in module_constants {
-                        resolved_func_consts.push(index.resolve(imports, vs)?);
+                        resolved_func_consts.push(resolve_index(index, imports, vs)?);
                     }
                     resolve_fn(ValueTable::from_values(resolved_func_consts));
                     Ok(())

@@ -1,6 +1,5 @@
 use crate::{
     pure_values::{Float, Integer},
-    runtime::{environment::ModuleImportEnvironment, error::RuntimeError, value::Value},
     util::imm_string::ImmString,
 };
 
@@ -16,20 +15,6 @@ pub enum ConstIndex {
 }
 
 impl ConstIndex {
-    pub(crate) fn resolve(
-        &self,
-        imports: &ModuleImportEnvironment,
-        consts: &[Value],
-    ) -> Result<Value, RuntimeError> {
-        match self {
-            ConstIndex::ModuleConst(index) => consts
-                .get(usize::try_from(*index).unwrap())
-                .cloned()
-                .ok_or_else(|| RuntimeError::new_internal_error("Invalid index.")),
-            ConstIndex::ModuleImport(index) => imports.get_import(*index),
-        }
-    }
-
     pub fn as_module_const(&self) -> Option<u32> {
         match self {
             ConstIndex::ModuleConst(index) => Some(*index),

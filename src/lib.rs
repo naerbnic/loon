@@ -13,7 +13,7 @@ mod tests {
             ModuleBuilder,
         },
         pure_values::Integer,
-        runtime::{global_env::GlobalEnv, TopLevelRuntime},
+        runtime::Runtime,
     };
 
     #[test]
@@ -27,10 +27,10 @@ mod tests {
         test_func_builder.build()?;
         let module = module_builder.into_const_module()?;
 
-        let global_env = GlobalEnv::new();
-        global_env.load_module(module_id.clone(), &module)?;
+        let runtime = Runtime::new();
+        runtime.load_module(module_id.clone(), &module)?;
 
-        let top_level = TopLevelRuntime::new(global_env);
+        let top_level = runtime.make_top_level();
         {
             let mut stack = top_level.stack();
             stack.push_int(1);
@@ -48,8 +48,8 @@ mod tests {
 
     #[test]
     fn simple_native_function_test() -> anyhow::Result<()> {
-        let global_env = GlobalEnv::new();
-        let top_level = TopLevelRuntime::new(global_env);
+        let runtime = Runtime::new();
+        let top_level = runtime.make_top_level();
         {
             let mut stack = top_level.stack();
             stack.push_int(1);
