@@ -1,5 +1,3 @@
-
-
 use std::{
     cell::{Cell, RefCell, UnsafeCell},
     collections::{HashMap, HashSet, VecDeque},
@@ -141,30 +139,30 @@ where
     }
 }
 
+thread_local! {
+    static CURR_ENV: RefCell<Option<ControlPtr>> = const { RefCell::new(None) };
+}
+
 type RootGatherer = Box<dyn Fn(&mut GcRoots)>;
 
-struct EnvInner {
+struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
     root_gatherer: Option<RootGatherer>,
     alloc_count: Cell<usize>,
     alloc_count_limit: usize,
 }
 
-/// The main context object that manages a set of garbage collected objects.
-///
-/// This object is responsible for generating `Ref<T>` objects that are managed
-/// by the garbage collector. Garbage collection happens only on demand
-/// through the `garbage_collect()` method.
-pub struct GcEnv {
-    inner: Rc<EnvInner>,
+#[derive(Clone)]
+struct ControlPtr {
+    control: Rc<ControlData>,
 }
 
-impl GcEnv {
+impl ControlPtr {
     const DEFAULT_ALLOC_COUNT_LIMIT: usize = 100;
     /// Creates a new empty `GcContext`.
     pub fn new() -> Self {
         Self {
-            inner: Rc::new(EnvInner {
+            control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
                 root_gatherer: None,
                 alloc_count: Cell::new(0),
@@ -178,7 +176,7 @@ impl GcEnv {
         F: Fn(&mut GcRoots) + 'static,
     {
         Self {
-            inner: Rc::new(EnvInner {
+            control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
                 root_gatherer: Some(Box::new(gatherer)),
                 alloc_count: Cell::new(0),
@@ -189,7 +187,7 @@ impl GcEnv {
 
     fn downgrade(&self) -> WeakRefContext {
         WeakRefContext {
-            inner: Rc::downgrade(&self.inner),
+            inner: Rc::downgrade(&self.control),
         }
     }
 
@@ -197,12 +195,12 @@ impl GcEnv {
     where
         T: GcTraceable + 'static,
     {
-        if let Some(gatherer) = &self.inner.root_gatherer {
-            if self.inner.alloc_count.get() >= self.inner.alloc_count_limit {
+        if let Some(gatherer) = &self.control.root_gatherer {
+            if self.control.alloc_count.get() >= self.control.alloc_count_limit {
                 let mut roots = GcRoots::new();
                 gatherer(&mut roots);
                 self.garbage_collect(&roots);
-                self.inner.alloc_count.set(0);
+                self.control.alloc_count.set(0);
             }
         }
 
@@ -211,7 +209,7 @@ impl GcEnv {
 
         let obj_info = ObjectInfoImpl::new(obj);
         {
-            let mut live_objects = self.inner.live_objects.borrow_mut();
+            let mut live_objects = self.control.live_objects.borrow_mut();
             live_objects.insert(ptr_id, Box::new(obj_info));
         }
     }
@@ -224,7 +222,7 @@ impl GcEnv {
     /// To resolve the reference, the function returned by this method must be
     /// called with a value. References will then be updated to point to the
     /// new value.
-    pub fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
+    fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
     where
         T: GcTraceable + 'static,
     {
@@ -249,7 +247,7 @@ impl GcEnv {
 
     /// Creates a new reference that is managed by the RefContext that contains
     /// the given value.
-    pub fn create_ref<T>(&self, value: T) -> GcRef<T>
+    fn create_ref<T>(&self, value: T) -> GcRef<T>
     where
         T: GcTraceable + 'static,
     {
@@ -261,7 +259,7 @@ impl GcEnv {
     }
 
     pub fn garbage_collect(&self, roots: &GcRoots) {
-        let mut live_objects = self.inner.live_objects.borrow_mut();
+        let mut live_objects = self.control.live_objects.borrow_mut();
         let mut reachable = HashSet::new();
         let mut worklist: VecDeque<_> = roots.roots.iter().cloned().collect();
 
@@ -281,10 +279,91 @@ impl GcEnv {
     }
 }
 
-impl Default for GcEnv {
-    fn default() -> Self {
-        Self::new()
+/// The main context object that manages a set of garbage collected objects.
+///
+/// This object is responsible for generating `Ref<T>` objects that are managed
+/// by the garbage collector. Garbage collection happens only on demand
+/// through the `garbage_collect()` method.
+pub struct GcEnv(ControlPtr);
+
+impl GcEnv {
+    pub fn new() -> Self {
+        Self(ControlPtr::new())
     }
+
+    pub fn with_root_gatherer<F>(alloc_limit: usize, gatherer: F) -> Self
+    where
+        F: Fn(&mut GcRoots) + 'static,
+    {
+        Self(ControlPtr::with_root_gatherer(alloc_limit, gatherer))
+    }
+
+    pub fn with<F, R>(&self, body: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let _borrow = self.borrow();
+
+        body()
+    }
+
+    pub fn borrow(&self) -> GcEnvGuard {
+        CURR_ENV.with(|env| {
+            let prev_env = env.borrow_mut().replace(self.0.clone());
+            if prev_env.is_some() {
+                panic!("nested GcEnv::with() calls are not allowed");
+            }
+        });
+        GcEnvGuard { env: self }
+    }
+}
+
+pub struct GcEnvGuard<'a> {
+    env: &'a GcEnv,
+}
+
+impl Drop for GcEnvGuard<'_> {
+    fn drop(&mut self) {
+        CURR_ENV.with(|env| {
+            let prev_env = env.borrow_mut().take();
+            if prev_env.is_none() {
+                panic!("GcEnv::with() was not called");
+            }
+        });
+    }
+}
+
+pub fn create_ref<T>(value: T) -> GcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    CURR_ENV.with(|env| {
+        let env = env.borrow();
+        env.as_ref()
+            .expect("Not in thread scope of a GcEnv::with() call")
+            .create_ref(value)
+    })
+}
+
+pub fn create_deferred_ref<T>() -> (GcRef<T>, impl FnOnce(T))
+where
+    T: GcTraceable + 'static,
+{
+    CURR_ENV.with(|env| {
+        let env = env.borrow();
+        env.as_ref()
+            .expect("Not in thread scope of a GcEnv::with() call")
+            .create_deferred_ref()
+    })
+}
+
+pub(super) fn garbage_collect(roots: &GcRoots) {
+    CURR_ENV.with(|env| {
+        let env = env.borrow();
+        env.as_ref()
+            .expect("Not in thread scope of a GcEnv::with() call")
+            .garbage_collect(roots);
+    })
 }
 
 /// A reference to a garbage collected object.
@@ -364,13 +443,15 @@ where
     }
 }
 
-pub struct WeakRefContext {
-    inner: Weak<EnvInner>,
+struct WeakRefContext {
+    inner: Weak<ControlData>,
 }
 
 impl WeakRefContext {
-    pub fn upgrade(&self) -> Option<GcEnv> {
-        self.inner.upgrade().map(|inner| GcEnv { inner })
+    pub fn upgrade(&self) -> Option<ControlPtr> {
+        self.inner
+            .upgrade()
+            .map(|inner| ControlPtr { control: inner })
     }
 }
 

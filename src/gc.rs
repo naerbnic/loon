@@ -6,10 +6,14 @@
 
 mod core;
 
-pub use core::{GcEnv, GcRef, GcRefVisitor, GcTraceable};
+pub use core::{
+    create_deferred_ref, create_ref, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable,
+};
 
 #[cfg(test)]
 mod tests {
+    use tests::core::garbage_collect;
+
     use super::core::GcRoots;
     use super::*;
     use std::cell::{Cell, RefCell};
@@ -68,52 +72,56 @@ mod tests {
 
     #[test]
     fn test_ref_works() {
-        let ctxt = GcEnv::new();
-        let i_ref = ctxt.create_ref(4);
-        let val = *i_ref.borrow();
-        assert_eq!(val, 4);
+        GcEnv::new().with(|| {
+            let i_ref = create_ref(4);
+            let val = *i_ref.borrow();
+            assert_eq!(val, 4);
+        })
     }
 
     #[test]
     fn test_simple_gc() {
-        let ctxt = GcEnv::new();
-        let i_ref = ctxt.create_ref(4);
-        let mut roots = GcRoots::new();
-        roots.add(&i_ref);
-        ctxt.garbage_collect(&roots);
-        let val = *i_ref.borrow();
-        assert_eq!(val, 4);
+        GcEnv::new().with(|| {
+            let i_ref = create_ref(4);
+            let mut roots = GcRoots::new();
+            roots.add(&i_ref);
+            garbage_collect(&roots);
+            let val = *i_ref.borrow();
+            assert_eq!(val, 4);
+        })
     }
 
     #[test]
     fn test_simple_gc_collect() {
-        let ctxt = GcEnv::new();
-        let i_ref = ctxt.create_ref(4);
-        ctxt.garbage_collect(&GcRoots::new());
-        let val = i_ref.try_borrow();
-        assert!(val.is_none());
+        GcEnv::new().with(|| {
+            let i_ref = create_ref(4);
+            garbage_collect(&GcRoots::new());
+            let val = i_ref.try_borrow();
+            assert!(val.is_none());
+        })
     }
 
     #[test]
     fn loop_collects() {
-        let ctxt = GcEnv::new();
-        let (node1, drop1) = Node::new();
-        let (node2, drop2) = Node::new();
-        let (node2_ref, resolve_node2_ref) = ctxt.create_deferred_ref();
-        node1.add_child(node2_ref);
-        let node1_ref = ctxt.create_ref(node1);
-        node2.add_child(node1_ref.clone());
-        resolve_node2_ref(node2);
-        assert!(!drop1());
-        assert!(!drop2());
+        GcEnv::new().with(|| {
+            let (node1, drop1) = Node::new();
+            let (node2, drop2) = Node::new();
+            let (node2_ref, resolve_node2_ref) = create_deferred_ref();
+            node1.add_child(node2_ref);
+            let node1_ref = create_ref(node1);
+            node2.add_child(node1_ref.clone());
+            resolve_node2_ref(node2);
+            assert!(!drop1());
+            assert!(!drop2());
 
-        // With either of the two, both should not be collected.
-        ctxt.garbage_collect(&gc_roots!(&node1_ref));
-        assert!(!drop1());
-        assert!(!drop2());
+            // With either of the two, both should not be collected.
+            garbage_collect(&gc_roots!(&node1_ref));
+            assert!(!drop1());
+            assert!(!drop2());
 
-        ctxt.garbage_collect(&gc_roots!());
-        assert!(drop1());
-        assert!(drop2());
+            garbage_collect(&gc_roots!());
+            assert!(drop1());
+            assert!(drop2());
+        })
     }
 }

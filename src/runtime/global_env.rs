@@ -23,7 +23,7 @@ use crate::{
         instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
-    gc::{GcEnv, GcRef, GcRefVisitor, GcTraceable},
+    gc::{self, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable},
 };
 
 struct Inner {
@@ -76,11 +76,15 @@ impl GlobalEnv {
         GlobalEnv(inner_rc)
     }
 
+    pub fn gc_borrow(&self) -> GcEnvGuard<'_> {
+        self.0.gc_context.borrow()
+    }
+
     pub fn create_ref<T>(&self, value: T) -> GcRef<T>
     where
         T: GcTraceable + 'static,
     {
-        self.0.gc_context.create_ref(value)
+        gc::create_ref(value)
     }
 
     /// Loads a module into this global context.
@@ -92,9 +96,11 @@ impl GlobalEnv {
         module_id: ModuleId,
         module: &binary::modules::ConstModule,
     ) -> Result<()> {
-        let module = Module::from_binary(self, module)?;
-        self.0.loaded_modules.borrow_mut().insert(module_id, module);
-        Ok(())
+        self.0.gc_context.with(|| {
+            let module = Module::from_binary(self, module)?;
+            self.0.loaded_modules.borrow_mut().insert(module_id, module);
+            Ok(())
+        })
     }
 
     pub(crate) fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
@@ -192,7 +198,7 @@ impl GlobalEnv {
     where
         T: GcTraceable + 'static,
     {
-        self.0.gc_context.create_deferred_ref()
+        gc::create_deferred_ref()
     }
 }
 

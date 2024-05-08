@@ -1,6 +1,9 @@
 use std::rc::{Rc, Weak};
 
-use crate::{binary::modules::ModuleId, gc::GcTraceable};
+use crate::{
+    binary::modules::ModuleId,
+    gc::{GcEnvGuard, GcTraceable},
+};
 
 use super::{
     error::Result,
@@ -9,6 +12,25 @@ use super::{
     stack_frame::{LocalStack, StackContext},
     value::Value,
 };
+
+pub struct Stack<'a> {
+    _gc_guard: GcEnvGuard<'a>,
+    stack_context: StackContext<'a>,
+}
+
+impl<'a> std::ops::Deref for Stack<'a> {
+    type Target = StackContext<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stack_context
+    }
+}
+
+impl<'a> std::ops::DerefMut for Stack<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stack_context
+    }
+}
 
 struct Inner {
     stack: LocalStack,
@@ -40,8 +62,11 @@ impl TopLevelRuntime {
         }
     }
 
-    pub fn stack(&self) -> StackContext {
-        StackContext::new(&self.global_context, &self.inner.stack)
+    pub fn stack(&self) -> Stack {
+        Stack {
+            _gc_guard: self.global_context.gc_borrow(),
+            stack_context: StackContext::new(&self.global_context, &self.inner.stack),
+        }
     }
 
     pub fn call_function(&self, num_args: u32) -> Result<u32> {
