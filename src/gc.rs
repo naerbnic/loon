@@ -13,6 +13,8 @@ use std::{
 use std::rc::{Rc, Weak};
 
 struct InnerType<T> {
+    /// A cell that is false if this object has not been resolved
+    /// (where contents has not been initialized), and true if it has.
     is_resolved: Cell<bool>,
     contents: UnsafeCell<MaybeUninit<T>>,
 }
