@@ -213,15 +213,6 @@ impl ControlPtr {
             live_objects.insert(ptr_id, Box::new(obj_info));
         }
     }
-
-    /// Creates a new reference that will be managed by the RefContext, but
-    /// not yet resolved. `Ref<T>` objects created by this method will not
-    /// have any value associated with them until the deferred reference is
-    /// resolved.
-    ///
-    /// To resolve the reference, the function returned by this method must be
-    /// called with a value. References will then be updated to point to the
-    /// new value.
     fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
     where
         T: GcTraceable + 'static,
@@ -325,10 +316,11 @@ pub struct GcEnvGuard<'a> {
 impl Drop for GcEnvGuard<'_> {
     fn drop(&mut self) {
         CURR_ENV.with(|env| {
-            let prev_env = env.borrow_mut().take();
-            if prev_env.is_none() {
-                panic!("GcEnv::with() was not called");
-            }
+            let prev_env = env
+                .borrow_mut()
+                .take()
+                .expect("GcEnv::with() was not called");
+            assert!(Rc::ptr_eq(&prev_env.control, &self.env.0.control));
         });
     }
 }
@@ -345,6 +337,14 @@ where
     })
 }
 
+/// Creates a new reference that will be managed by the RefContext, but
+/// not yet resolved. `Ref<T>` objects created by this method will not
+/// have any value associated with them until the deferred reference is
+/// resolved.
+///
+/// To resolve the reference, the function returned by this method must be
+/// called with a value. References will then be updated to point to the
+/// new value.
 pub fn create_deferred_ref<T>() -> (GcRef<T>, impl FnOnce(T))
 where
     T: GcTraceable + 'static,
