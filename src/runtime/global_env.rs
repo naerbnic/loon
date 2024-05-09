@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::{Rc, Weak},
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use super::{
     error::{Result, RuntimeError},
@@ -55,7 +51,7 @@ impl GlobalEnv {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let inner_rc = Rc::new(Inner {
-            gc_context: GcEnv::new(),
+            gc_context: GcEnv::new(1),
             loaded_modules: RefCell::new(HashMap::new()),
             top_level_contents: RefCell::new(HashMap::new()),
             eval_context_contents: RefCell::new(HashMap::new()),

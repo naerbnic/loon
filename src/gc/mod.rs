@@ -14,21 +14,9 @@ pub use core::{
 mod tests {
     use tests::core::garbage_collect;
 
-    use super::core::GcRoots;
     use super::*;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
-
-    macro_rules! gc_roots {
-        ($($e:expr),*) => {
-            {
-                #[allow(unused_mut)]
-                let mut roots = GcRoots::new();
-                $(roots.add($e);)*
-                roots
-            }
-        };
-    }
 
     struct Node {
         children: RefCell<Vec<GcRef<Node>>>,
@@ -72,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_ref_works() {
-        GcEnv::new().with(|| {
+        GcEnv::new(100).with(|| {
             let i_ref = create_ref(4);
             let val = *i_ref.borrow();
             assert_eq!(val, 4);
@@ -81,7 +69,7 @@ mod tests {
 
     #[test]
     fn test_simple_gc() {
-        GcEnv::new().with(|| {
+        GcEnv::new(100).with(|| {
             let i_ref = create_ref(4).pin();
             garbage_collect();
             let val = *i_ref.borrow();
@@ -91,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_simple_gc_collect() {
-        GcEnv::new().with(|| {
+        GcEnv::new(100).with(|| {
             let i_ref = create_ref(4);
             garbage_collect();
             let val = i_ref.try_borrow();
@@ -101,7 +89,7 @@ mod tests {
 
     #[test]
     fn loop_collects() {
-        GcEnv::new().with(|| {
+        GcEnv::new(100).with(|| {
             let (node1, drop1) = Node::new();
             let (node2, drop2) = Node::new();
             let (node2_ref, resolve_node2_ref) = create_deferred_ref();

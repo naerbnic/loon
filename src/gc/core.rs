@@ -71,17 +71,6 @@ impl GcRefVisitor for PtrVisitor<'_> {
     }
 }
 
-struct RootsVisitor<'a>(&'a mut GcRoots);
-
-impl GcRefVisitor for RootsVisitor<'_> {
-    fn visit<T>(&mut self, obj: &GcRef<T>)
-    where
-        T: GcTraceable + 'static,
-    {
-        self.0.add(obj);
-    }
-}
-
 struct ObjectInfoImpl<T>(Rc<InnerType<T>>);
 
 impl<T> ObjectInfoImpl<T>
@@ -116,24 +105,8 @@ thread_local! {
     static CURR_ENV: RefCell<Option<ControlPtr>> = const { RefCell::new(None) };
 }
 
-fn with_control_ptr<F, R>(body: F) -> R
-where
-    F: FnOnce(&ControlPtr) -> R,
-{
-    CURR_ENV.with(|env| {
-        body(
-            env.borrow()
-                .as_ref()
-                .expect("Not in thread scope of a GcEnv::with() call"),
-        )
-    })
-}
-
-type RootGatherer = Box<dyn Fn(&mut GcRoots)>;
-
 struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
-    pinned_objects: RefCell<HashSet<*const dyn PinnedObject>>,
     alloc_count: Cell<usize>,
     alloc_count_limit: usize,
 }
@@ -144,27 +117,11 @@ struct ControlPtr {
 }
 
 impl ControlPtr {
-    const DEFAULT_ALLOC_COUNT_LIMIT: usize = 100;
     /// Creates a new empty `GcContext`.
-    pub fn new() -> Self {
+    pub fn new(alloc_limit: usize) -> Self {
         Self {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
-                pinned_objects: RefCell::new(HashSet::new()),
-                alloc_count: Cell::new(0),
-                alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
-            }),
-        }
-    }
-
-    pub fn with_root_gatherer<F>(alloc_limit: usize, gatherer: F) -> Self
-    where
-        F: Fn(&mut GcRoots) + 'static,
-    {
-        Self {
-            control: Rc::new(ControlData {
-                live_objects: RefCell::new(HashMap::new()),
-                pinned_objects: RefCell::new(HashSet::new()),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: alloc_limit,
             }),
@@ -254,25 +211,6 @@ impl ControlPtr {
 
         live_objects.retain(|key, _| reachable.contains(key));
     }
-
-    /// Adds a pinned object to the context.
-    /// The members of this object will not be garbage collected, as its members
-    /// will work with tracing.
-    ///
-    /// # Safety
-    ///
-    /// The raw pointer must be valid for the time that the object is kept in
-    /// the pinned set. It must be unpinned before the object is moved and/or
-    /// dropped.
-    pub unsafe fn add_pinned_object(&self, obj: *const dyn PinnedObject) {
-        let added = self.control.pinned_objects.borrow_mut().insert(obj);
-        assert!(added)
-    }
-
-    pub unsafe fn remove_pinned_object(&self, obj: *const dyn PinnedObject) {
-        let removed = self.control.pinned_objects.borrow_mut().remove(&obj);
-        assert!(removed)
-    }
 }
 
 /// The main context object that manages a set of garbage collected objects.
@@ -283,8 +221,8 @@ impl ControlPtr {
 pub struct GcEnv(ControlPtr);
 
 impl GcEnv {
-    pub fn new() -> Self {
-        Self(ControlPtr::new())
+    pub fn new(alloc_limit: usize) -> Self {
+        Self(ControlPtr::new(alloc_limit))
     }
 
     pub fn with<F, R>(&self, body: F) -> R
@@ -355,6 +293,7 @@ where
     })
 }
 
+#[cfg(test)]
 pub(super) fn garbage_collect() {
     CURR_ENV.with(|env| {
         let env = env.borrow();
@@ -517,44 +456,6 @@ impl WeakRefContext {
     }
 }
 
-/// An object that is used to collect a collection of references that are
-/// considered roots for a single garbage collection pass.
-pub struct GcRoots {
-    roots: HashSet<PtrKey>,
-}
-
-impl GcRoots {
-    /// Creates a new empty GcRoots object.
-    pub fn new() -> Self {
-        Self {
-            roots: HashSet::new(),
-        }
-    }
-
-    /// Add the given reference to the roots collection.
-    pub fn add<T>(&mut self, obj: &GcRef<T>)
-    where
-        T: GcTraceable + 'static,
-    {
-        if let Some(key) = PtrKey::from_weak(&obj.obj) {
-            self.roots.insert(key);
-        }
-    }
-
-    pub fn visit<T>(&mut self, obj: &T)
-    where
-        T: GcTraceable + 'static,
-    {
-        obj.trace(&mut RootsVisitor(self));
-    }
-}
-
-impl Default for GcRoots {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// A trait that allows an object to be visited by a GcRefVisitor.
 pub trait GcRefVisitor {
     /// Visits the given reference.
@@ -603,46 +504,5 @@ where
 {
     fn collect_ptrs(&self, visitor: &mut dyn FnMut(PtrKey)) {
         self.0.trace(&mut PtrVisitor(visitor));
-    }
-}
-
-pub struct PinnedRef<'a, T>
-where
-    T: GcTraceable + 'static,
-{
-    pinned: std::pin::Pin<&'a mut PinnedObjectWrapper<T>>,
-}
-
-impl<'a, T> PinnedRef<'a, T>
-where
-    T: GcTraceable + 'static,
-{
-    pub fn new(pinned: std::pin::Pin<&'a mut PinnedObjectWrapper<T>>) -> Self {
-        // Because the object is pinned, and will be for the extent of this object,
-        // we can safely take references to it for the duration of the object's lifetime.
-        with_control_ptr(|ctrl| unsafe { ctrl.add_pinned_object(pinned.as_ref().get_ref()) });
-        Self { pinned }
-    }
-}
-
-impl<T> std::ops::Deref for PinnedRef<'_, T>
-where
-    T: GcTraceable + 'static,
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.pinned.as_ref().get_ref().0
-    }
-}
-
-impl<T> std::ops::Drop for PinnedRef<'_, T>
-where
-    T: GcTraceable + 'static,
-{
-    fn drop(&mut self) {
-        with_control_ptr(|ctrl| unsafe {
-            ctrl.remove_pinned_object(self.pinned.as_ref().get_ref())
-        });
     }
 }
