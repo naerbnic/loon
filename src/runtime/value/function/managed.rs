@@ -1,16 +1,20 @@
 //! A managed function, representing code within the Loon runtime to evaluate.
 
-use std::rc::Rc;
+use std::{cell::OnceCell, rc::Rc};
 
 use crate::{
     gc::{GcRefVisitor, GcTraceable},
-    runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals},
+    runtime::{
+        constants::{self, ValueTable},
+        instructions::InstEvalList,
+        modules::ModuleGlobals,
+    },
 };
 
 /// A managed function, representing code within the Loon runtime to evaluate.
 pub(crate) struct ManagedFunction {
     globals: ModuleGlobals,
-    constants: ValueTable,
+    constants: OnceCell<ValueTable>,
     inst_list: Rc<InstEvalList>,
 }
 
@@ -18,7 +22,15 @@ impl ManagedFunction {
     pub fn new(globals: ModuleGlobals, constants: ValueTable, inst_list: Rc<InstEvalList>) -> Self {
         ManagedFunction {
             globals,
-            constants,
+            constants: constants.into(),
+            inst_list,
+        }
+    }
+
+    pub fn new_deferred(globals: ModuleGlobals, inst_list: Rc<InstEvalList>) -> Self {
+        ManagedFunction {
+            globals,
+            constants: OnceCell::new(),
             inst_list,
         }
     }
@@ -28,7 +40,12 @@ impl ManagedFunction {
     }
 
     pub fn constants(&self) -> &ValueTable {
-        &self.constants
+        self.constants.get().expect("Constants not resolved.")
+    }
+
+    pub fn resolve_constants(&self, constants: ValueTable) {
+        let result = self.constants.set(constants);
+        assert!(result.is_ok(), "Constants already resolved.");
     }
 
     pub fn globals(&self) -> &ModuleGlobals {
@@ -42,6 +59,8 @@ impl GcTraceable for ManagedFunction {
         V: GcRefVisitor,
     {
         self.globals.trace(visitor);
-        self.constants.trace(visitor);
+        if let Some(constants) = self.constants.get() {
+            constants.trace(visitor);
+        }
     }
 }

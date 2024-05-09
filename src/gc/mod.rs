@@ -6,9 +6,7 @@
 
 mod core;
 
-pub use core::{
-    create_deferred_ref, create_ref, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable,
-};
+pub use core::{create_ref, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable};
 
 #[cfg(test)]
 mod tests {
@@ -92,11 +90,10 @@ mod tests {
         GcEnv::new(100).with(|| {
             let (node1, drop1) = Node::new();
             let (node2, drop2) = Node::new();
-            let (node2_ref, resolve_node2_ref) = create_deferred_ref();
-            node1.add_child(node2_ref);
+            let node2_ref = create_ref(node2);
+            node1.add_child(node2_ref.clone());
             let node1_ref = create_ref(node1);
-            node2.add_child(node1_ref.clone());
-            resolve_node2_ref(node2);
+            node2_ref.borrow().add_child(node1_ref.clone());
             assert!(!drop1());
             assert!(!drop2());
 

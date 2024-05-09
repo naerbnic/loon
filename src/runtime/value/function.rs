@@ -87,15 +87,21 @@ impl Function {
         global: ModuleGlobals,
         inst_list: Rc<InstEvalList>,
     ) -> (Self, impl FnOnce(ValueTable)) {
-        let (base_func_value, resolve_fn) = global_env.create_deferred_ref();
+        let base_func_value = global_env.create_ref(BaseFunction::Managed(
+            ManagedFunction::new_deferred(global, inst_list),
+        ));
 
-        (Function::Base(base_func_value), |value_table| {
-            resolve_fn(BaseFunction::Managed(ManagedFunction::new(
-                global,
-                value_table,
-                inst_list,
-            )));
-        })
+        (
+            Function::Base(base_func_value.clone()),
+            move |value_table| {
+                let base_func = base_func_value.borrow();
+                let managed_func = match &*base_func {
+                    BaseFunction::Managed(managed_func) => managed_func,
+                    _ => unreachable!(),
+                };
+                managed_func.resolve_constants(value_table);
+            },
+        )
     }
 
     pub fn new_native<T>(global_env: &GlobalEnv, native_func: T) -> Self

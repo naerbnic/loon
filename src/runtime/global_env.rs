@@ -175,16 +175,6 @@ impl GlobalEnv {
     }
 }
 
-/// Crate internal methods for global context.
-impl GlobalEnv {
-    pub(crate) fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
-    where
-        T: GcTraceable + 'static,
-    {
-        gc::create_deferred_ref()
-    }
-}
-
 impl GcTraceable for GlobalEnv {
     fn trace<V>(&self, visitor: &mut V)
     where

@@ -132,17 +132,19 @@ impl ConstLoader for ConstValue {
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
             ConstValue::String(s) => (Value::String(s.clone()), None),
             ConstValue::List(list) => {
-                let (deferred, resolve_fn) = ctxt.global_context().create_deferred_ref();
-                let resolver: ResolveFunc = Box::new(move |imports, vs| {
-                    let mut list_elems = Vec::with_capacity(list.len());
-                    for index in list {
-                        list_elems.push(resolve_index(index, imports, vs)?);
-                    }
-                    resolve_fn(List::from_iter(list_elems));
-                    Ok(())
-                });
+                let list_value = ctxt.global_context().create_ref(List::new());
+                let resolver: ResolveFunc = {
+                    let list_value = list_value.clone();
+                    Box::new(move |imports, vs| {
+                        let list_elems = list_value.borrow();
+                        for index in list {
+                            list_elems.append(resolve_index(index, imports, vs)?);
+                        }
+                        Ok(())
+                    })
+                };
 
-                (Value::List(deferred), Some(resolver))
+                (Value::List(list_value), Some(resolver))
             }
             ConstValue::Function(const_func) => {
                 let (deferred, resolve_fn) = Function::new_managed_deferred(

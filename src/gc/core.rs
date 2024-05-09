@@ -153,29 +153,6 @@ impl ControlPtr {
         }
     }
 
-    pub fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
-    where
-        T: GcTraceable + 'static,
-    {
-        // We create a weakref that we can resurrect when needed.
-        let deferred_obj = Rc::new(InnerType::new_empty());
-        let obj = deferred_obj.clone();
-        let weak_ctxt = self.downgrade();
-        (GcRef::from_rc(obj), move |value| {
-            let Some(ctxt) = weak_ctxt.upgrade() else {
-                return;
-            };
-
-            {
-                let result = deferred_obj.resolve_with(value);
-                if result.is_err() {
-                    panic!("object was already resolved");
-                }
-            }
-            ctxt.accept_rc(deferred_obj);
-        })
-    }
-
     /// Creates a new reference that is managed by the RefContext that contains
     /// the given value.
     pub fn create_ref<T>(&self, value: T) -> GcRef<T>
@@ -270,26 +247,6 @@ where
         env.as_ref()
             .expect("Not in thread scope of a GcEnv::with() call")
             .create_ref(value)
-    })
-}
-
-/// Creates a new reference that will be managed by the RefContext, but
-/// not yet resolved. `Ref<T>` objects created by this method will not
-/// have any value associated with them until the deferred reference is
-/// resolved.
-///
-/// To resolve the reference, the function returned by this method must be
-/// called with a value. References will then be updated to point to the
-/// new value.
-pub fn create_deferred_ref<T>() -> (GcRef<T>, impl FnOnce(T))
-where
-    T: GcTraceable + 'static,
-{
-    CURR_ENV.with(|env| {
-        let env = env.borrow();
-        env.as_ref()
-            .expect("Not in thread scope of a GcEnv::with() call")
-            .create_deferred_ref()
     })
 }
 
