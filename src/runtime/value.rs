@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     binary::{ConstIndex, ConstValue},
-    gc::{GcRef, GcRefVisitor, GcTraceable},
+    gc::{self, GcRef, GcRefVisitor, GcTraceable},
     pure_values::{Float, Integer},
     util::imm_string::ImmString,
 };
@@ -124,6 +124,7 @@ impl ConstLoader for ConstValue {
         &'a self,
         ctxt: &'a ConstResolutionContext,
     ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
+        assert!(gc::is_collect_locked());
         let (value, resolver) = match self {
             ConstValue::Bool(b) => (Value::Bool(*b), None),
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    gc::{GcRef, GcRefVisitor, GcTraceable},
+    gc::{self, GcRef, GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable,
         error::{Result, RuntimeError},

@@ -13,10 +13,6 @@ impl Runtime {
         }
     }
 
-    /// Loads a module into this runtime.
-    ///
-    /// This does not initialize the module state, and has to be done at a
-    /// later pass.
     pub fn load_module(&self, module_id: ModuleId, module: &ConstModule) -> Result<()> {
         self.global_env.load_module(module_id, module)
     }

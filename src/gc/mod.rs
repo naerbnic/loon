@@ -7,7 +7,10 @@
 mod core;
 mod counter;
 
-pub use core::{create_ref, CollectGuard, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable};
+pub use core::{
+    create_pinned_ref, create_ref, is_collect_locked, lock_collection, CollectGuard, GcEnv,
+    GcEnvGuard, GcRef, GcRefVisitor, GcTraceable, PinnedGcRef,
+};
 
 #[cfg(test)]
 mod tests {
@@ -60,7 +63,7 @@ mod tests {
     #[test]
     fn test_ref_works() {
         GcEnv::new(100).with(|| {
-            let i_ref = create_ref(4);
+            let i_ref = create_pinned_ref(4).into_ref();
             let val = *i_ref.borrow();
             assert_eq!(val, 4);
         })
@@ -69,7 +72,8 @@ mod tests {
     #[test]
     fn test_simple_gc() {
         GcEnv::new(100).with(|| {
-            let i_ref = create_ref(4).pin();
+            let i_ref = create_pinned_ref(4);
+            let i_ref = i_ref.to_ref();
             garbage_collect();
             let val = *i_ref.borrow();
             assert_eq!(val, 4);
@@ -79,7 +83,7 @@ mod tests {
     #[test]
     fn test_simple_gc_collect() {
         GcEnv::new(100).with(|| {
-            let i_ref = create_ref(4);
+            let i_ref = create_pinned_ref(4).into_ref();
             garbage_collect();
             let val = i_ref.try_borrow();
             assert!(val.is_none());
@@ -91,21 +95,21 @@ mod tests {
         GcEnv::new(100).with(|| {
             let (node1, drop1) = Node::new();
             let (node2, drop2) = Node::new();
-            let node2_ref = create_ref(node2);
-            node1.add_child(node2_ref.clone());
-            let node1_ref = create_ref(node1);
-            node2_ref.borrow().add_child(node1_ref.clone());
+            let node2_ref = create_pinned_ref(node2);
+            let node1_ref = create_pinned_ref(node1);
+            node1_ref.add_child(node2_ref.to_ref());
+            node2_ref.add_child(node1_ref.to_ref());
             assert!(!drop1());
             assert!(!drop2());
 
-            let pin_node1_ref = node1_ref.pin();
+            drop(node2_ref);
 
             // With either of the two, both should not be collected.
             garbage_collect();
             assert!(!drop1());
             assert!(!drop2());
 
-            drop(pin_node1_ref);
+            drop(node1_ref);
             garbage_collect();
             assert!(drop1());
             assert!(drop2());

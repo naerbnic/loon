@@ -19,7 +19,7 @@ use crate::{
         instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
-    gc::{self, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable},
+    gc::{self, CollectGuard, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
 };
 
 struct Inner {
@@ -63,6 +63,17 @@ impl GlobalEnv {
         self.0.gc_context.borrow()
     }
 
+    pub fn gc_lock_collection(&self) -> CollectGuard {
+        gc::lock_collection()
+    }
+
+    pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>
+    where
+        T: GcTraceable + 'static,
+    {
+        gc::create_pinned_ref(value)
+    }
+
     pub fn create_ref<T>(&self, value: T) -> GcRef<T>
     where
         T: GcTraceable + 'static,
@@ -80,6 +91,7 @@ impl GlobalEnv {
         module: &binary::modules::ConstModule,
     ) -> Result<()> {
         self.0.gc_context.with(|| {
+            let _collect_guard = gc::lock_collection();
             let module = Module::from_binary(self, module)?;
             self.0.loaded_modules.borrow_mut().insert(module_id, module);
             Ok(())

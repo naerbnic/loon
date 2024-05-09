@@ -93,16 +93,18 @@ mod tests {
 
     #[test]
     fn build_simple_values() {
-        let global_ctxt = GlobalEnv::new();
-        let _borrow = global_ctxt.gc_borrow();
-        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
-        let import_environment = ModuleImportEnvironment::new(vec![]);
-        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
         let const_table = vec![
             ConstValue::Integer(42.into()),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
             ConstValue::String("hello".into()),
         ];
+
+        let global_ctxt = GlobalEnv::new();
+        let _borrow = global_ctxt.gc_borrow();
+        let _collect_guard = global_ctxt.gc_lock_collection();
+        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
+        let import_environment = ModuleImportEnvironment::new(vec![]);
+        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
 
         let resolved_values = ValueTable::from_binary(&const_table, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 3);
@@ -125,11 +127,6 @@ mod tests {
 
     #[test]
     fn build_composite_value() {
-        let global_ctxt = GlobalEnv::new();
-        let _borrow = global_ctxt.gc_borrow();
-        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
-        let import_environment = ModuleImportEnvironment::new(vec![]);
-        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
         let values = vec![
             ConstValue::Integer(42.into()),
             ConstValue::List(vec![
@@ -138,6 +135,13 @@ mod tests {
                 ConstIndex::ModuleConst(0),
             ]),
         ];
+
+        let global_ctxt = GlobalEnv::new();
+        let _borrow = global_ctxt.gc_borrow();
+        let _collect_guard = global_ctxt.gc_lock_collection();
+        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
+        let import_environment = ModuleImportEnvironment::new(vec![]);
+        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
 
         let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);

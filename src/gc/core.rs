@@ -227,6 +227,10 @@ impl ControlPtr {
 
         live_objects.retain(|key, _| reachable.contains(key));
     }
+
+    pub fn is_collect_locked(&self) -> bool {
+        self.control.collect_guard_count.is_nonzero()
+    }
 }
 
 /// The main context object that manages a set of garbage collected objects.
@@ -266,30 +270,14 @@ impl Drop for GcEnvGuard<'_> {
     }
 }
 
-pub fn create_ref<T>(value: T) -> GcRef<T>
-where
-    T: GcTraceable + 'static,
-{
-    curr_env::with_context(|env| env.create_ref(value))
-}
-
-#[cfg(test)]
-pub(super) fn garbage_collect() {
-    curr_env::with_context(|env| env.garbage_collect());
-}
-
 pub struct CollectGuard();
 
 impl CollectGuard {
-    pub fn new() -> Self {
+    fn new() -> Self {
         curr_env::with_context(|env| {
             env.control.collect_guard_count.increment();
         });
         Self()
-    }
-
-    pub fn is_guarded() -> bool {
-        curr_env::with_context(|env| env.control.collect_guard_count.is_nonzero())
     }
 }
 
@@ -302,6 +290,41 @@ impl Drop for CollectGuard {
             }
         });
     }
+}
+
+pub fn lock_collection() -> CollectGuard {
+    CollectGuard::new()
+}
+
+pub fn is_collect_locked() -> bool {
+    curr_env::with_context(|env| env.is_collect_locked())
+}
+
+/// Create a new GcRef for a value.
+///
+/// Requires that there is a current GcEnv in the thread context, and
+/// that collection is currently locked. If collection is not locked, then
+/// the returned reference can be collected at any time.
+pub fn create_ref<T>(value: T) -> GcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    curr_env::with_context(|env| {
+        assert!(env.is_collect_locked());
+        env.create_ref(value)
+    })
+}
+
+pub fn create_pinned_ref<T>(value: T) -> PinnedGcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    curr_env::with_context(|env| env.create_ref(value).pin())
+}
+
+#[cfg(test)]
+pub(super) fn garbage_collect() {
+    curr_env::with_context(|env| env.garbage_collect());
 }
 
 /// A reference to a garbage collected object.
@@ -424,11 +447,36 @@ where
         Self { obj }
     }
 
+    pub fn to_ref(&self) -> GcRef<T> {
+        GcRef::from_rc(self.obj.clone())
+    }
+
+    pub fn into_ref(self) -> GcRef<T> {
+        self.to_ref()
+    }
+
     pub fn borrow(&self) -> GcRefGuard<T> {
         GcRefGuard {
             obj: self.obj.clone(),
             _phantom: std::marker::PhantomData,
         }
+    }
+}
+
+impl<T> std::ops::Deref for PinnedGcRef<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.obj.contents
+    }
+}
+
+impl<T> Clone for PinnedGcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    fn clone(&self) -> Self {
+        PinnedGcRef::from_rc(self.obj.clone())
     }
 }
 

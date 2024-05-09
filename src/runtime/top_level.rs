@@ -2,7 +2,7 @@ use std::rc::{Rc, Weak};
 
 use crate::{
     binary::modules::ModuleId,
-    gc::{GcEnvGuard, GcTraceable},
+    gc::{GcEnvGuard, GcTraceable, PinnedGcRef},
 };
 
 use super::{
