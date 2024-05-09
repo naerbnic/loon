@@ -1,73 +1,41 @@
 use std::{
-    cell::{Cell, RefCell, UnsafeCell},
+    cell::{Cell, OnceCell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
-    mem::MaybeUninit,
 };
 
 use std::rc::{Rc, Weak};
 
 struct InnerType<T> {
-    /// A cell that is false if this object has not been resolved
-    /// (where contents has not been initialized), and true if it has.
-    is_resolved: Cell<bool>,
-    contents: UnsafeCell<MaybeUninit<T>>,
+    ref_count: Cell<usize>,
+    lock_count: Cell<usize>,
+    contents: OnceCell<T>,
 }
 
 impl<T> InnerType<T> {
     pub fn new(value: T) -> Self {
         Self {
-            is_resolved: Cell::new(true),
-            contents: UnsafeCell::new(MaybeUninit::new(value)),
+            ref_count: Cell::new(0),
+            lock_count: Cell::new(0),
+            contents: value.into(),
         }
     }
     pub fn new_empty() -> Self {
         Self {
-            is_resolved: Cell::new(false),
-            contents: UnsafeCell::new(MaybeUninit::uninit()),
+            ref_count: Cell::new(0),
+            lock_count: Cell::new(0),
+            contents: OnceCell::new(),
         }
     }
     pub fn is_resolved(&self) -> bool {
-        self.is_resolved.get()
+        self.contents.get().is_some()
     }
 
     fn resolve_with(&self, value: T) -> Result<(), T> {
-        if self.is_resolved.get() {
-            Err(value)
-        } else {
-            // Safety: Since it has not been resolved, there must be no references
-            // to the contents of the inner type.
-            let cell_ref = unsafe { &mut *self.contents.get() };
-            cell_ref.write(value);
-            self.is_resolved.set(true);
-            Ok(())
-        }
+        self.contents.set(value)
     }
 
     fn try_as_ref(&self) -> Option<&T> {
-        if self.is_resolved.get() {
-            // Safety: Since it has been resolved, only other borrowed references
-            // can exist.
-            let uninit_cell = unsafe { &*self.contents.get() };
-
-            // Safety: Since it has been resolved, the value is initialized.
-            let resolved_ref = unsafe { uninit_cell.assume_init_ref() };
-            Some(resolved_ref)
-        } else {
-            None
-        }
-    }
-}
-
-impl<T> Drop for InnerType<T> {
-    fn drop(&mut self) {
-        if self.is_resolved.get() {
-            // Safety: Since it has been resolved, only other borrowed references
-            // can exist.
-            let uninit_cell = unsafe { &mut *self.contents.get() };
-
-            // Safety: Since it has been resolved, the value is initialized.
-            unsafe { uninit_cell.assume_init_drop() };
-        }
+        self.contents.get()
     }
 }
 
@@ -417,6 +385,13 @@ impl<T> GcRef<T>
 where
     T: GcTraceable + 'static,
 {
+    fn from_rc(obj: Rc<InnerType<T>>) -> Self {
+        obj.ref_count.set(obj.ref_count.get() + 1);
+        Self {
+            obj: Rc::downgrade(&obj),
+        }
+    }
+
     pub fn try_borrow(&self) -> Option<GcRefGuard<T>> {
         let obj = self.obj.upgrade()?;
         if !obj.is_resolved() {
@@ -430,6 +405,14 @@ where
 
     pub fn borrow(&self) -> GcRefGuard<T> {
         self.try_borrow().expect("object was not resolved")
+    }
+
+    pub fn try_pin(&self) -> Option<PinnedGcRef<T>> {
+        Some(PinnedGcRef::from_rc(self.obj.upgrade()?))
+    }
+
+    pub fn pin(&self) -> PinnedGcRef<T> {
+        PinnedGcRef::from_rc(self.obj.upgrade().expect("object was not resolved"))
     }
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
@@ -460,6 +443,17 @@ where
     }
 }
 
+impl<T> Drop for GcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    fn drop(&mut self) {
+        if let Some(obj) = self.obj.upgrade() {
+            obj.ref_count.set(obj.ref_count.get() - 1);
+        }
+    }
+}
+
 pub struct GcRefGuard<'a, T>
 where
     T: GcTraceable + 'static,
@@ -476,6 +470,41 @@ where
 
     fn deref(&self) -> &Self::Target {
         self.obj.try_as_ref().expect("object was still valid")
+    }
+}
+
+pub struct PinnedGcRef<T> {
+    obj: Rc<InnerType<T>>,
+}
+
+impl<T> PinnedGcRef<T>
+where
+    T: GcTraceable + 'static,
+{
+    /// Private method to convert a `GcRef` into a `PinnedGcRef`.
+    fn from_rc(obj: Rc<InnerType<T>>) -> Self {
+        obj.lock_count.set(obj.lock_count.get() + 1);
+        Self { obj }
+    }
+
+    pub fn try_borrow(&self) -> Option<GcRefGuard<T>> {
+        if !self.obj.is_resolved() {
+            return None;
+        }
+        Some(GcRefGuard {
+            obj: self.obj.clone(),
+            _phantom: std::marker::PhantomData,
+        })
+    }
+
+    pub fn borrow(&self) -> GcRefGuard<T> {
+        self.try_borrow().expect("object was not resolved")
+    }
+}
+
+impl<T> Drop for PinnedGcRef<T> {
+    fn drop(&mut self) {
+        self.obj.lock_count.set(self.obj.lock_count.get() - 1);
     }
 }
 
