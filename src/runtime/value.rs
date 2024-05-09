@@ -86,10 +86,8 @@ impl Value {
             (Value::Integer(i1), Value::Integer(i2)) => i1 == i2,
             (Value::Float(f1), Value::Float(f2)) => f1 == f2,
             (Value::String(s1), Value::String(s2)) => s1 == s2,
-            (Value::List(l1), Value::List(l2)) => std::ptr::eq(l1 as *const _, l2 as *const _),
-            (Value::Function(f1), Value::Function(f2)) => {
-                std::ptr::eq(f1 as *const _, f2 as *const _)
-            }
+            (Value::List(l1), Value::List(l2)) => GcRef::ref_eq(l1, l2),
+            (Value::Function(f1), Value::Function(f2)) => Function::ref_eq(f1, f2),
             _ => false,
         }
     }

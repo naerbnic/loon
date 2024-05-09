@@ -335,7 +335,7 @@ where
     }
 
     pub fn borrow(&self) -> GcRefGuard<T> {
-        self.try_borrow().expect("object was not resolved")
+        self.try_borrow().expect("object was deleted")
     }
 
     pub fn try_pin(&self) -> Option<PinnedGcRef<T>> {
@@ -343,10 +343,10 @@ where
     }
 
     pub fn pin(&self) -> PinnedGcRef<T> {
-        PinnedGcRef::from_rc(self.obj.upgrade().expect("object was not resolved"))
+        PinnedGcRef::from_rc(self.obj.upgrade().expect("object was deleted"))
     }
 
-    pub fn ptr_eq(&self, other: &Self) -> bool {
+    pub fn ref_eq(&self, other: &Self) -> bool {
         Weak::ptr_eq(&self.obj, &other.obj)
     }
 }

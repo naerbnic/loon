@@ -165,6 +165,14 @@ impl Function {
             }
         }
     }
+
+    pub fn ref_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Function::Base(lhs), Function::Base(rhs)) => GcRef::ref_eq(lhs, rhs),
+            (Function::Closure(lhs), Function::Closure(rhs)) => GcRef::ref_eq(lhs, rhs),
+            _ => false,
+        }
+    }
 }
 
 impl GcTraceable for Function {
