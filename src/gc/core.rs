@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, OnceCell, RefCell},
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
 };
 
@@ -8,34 +8,20 @@ use std::rc::{Rc, Weak};
 struct InnerType<T> {
     ref_count: Cell<usize>,
     pin_count: Cell<usize>,
-    contents: OnceCell<T>,
+    contents: T,
 }
 
 impl<T> InnerType<T> {
-    pub fn new(value: T) -> Self {
+    pub fn new(contents: T) -> Self {
         Self {
             ref_count: Cell::new(0),
             pin_count: Cell::new(0),
-            contents: value.into(),
+            contents,
         }
     }
-    pub fn new_empty() -> Self {
-        Self {
-            ref_count: Cell::new(0),
-            pin_count: Cell::new(0),
-            contents: OnceCell::new(),
-        }
-    }
-    pub fn is_resolved(&self) -> bool {
-        self.contents.get().is_some()
-    }
 
-    fn resolve_with(&self, value: T) -> Result<(), T> {
-        self.contents.set(value)
-    }
-
-    fn try_as_ref(&self) -> Option<&T> {
-        self.contents.get()
+    fn as_ref(&self) -> &T {
+        &self.contents
     }
 }
 
@@ -91,9 +77,7 @@ where
     }
 
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
-        if let Some(obj) = self.0.try_as_ref() {
-            obj.trace(&mut PtrVisitor(ptr_visitor));
-        }
+        (*self.0).as_ref().trace(&mut PtrVisitor(ptr_visitor));
     }
 
     fn destroy(self: Box<Self>) {
@@ -125,12 +109,6 @@ impl ControlPtr {
                 alloc_count: Cell::new(0),
                 alloc_count_limit: alloc_limit,
             }),
-        }
-    }
-
-    pub fn downgrade(&self) -> WeakRefContext {
-        WeakRefContext {
-            inner: Rc::downgrade(&self.control),
         }
     }
 
@@ -284,9 +262,6 @@ where
 
     pub fn try_borrow(&self) -> Option<GcRefGuard<T>> {
         let obj = self.obj.upgrade()?;
-        if !obj.is_resolved() {
-            return None;
-        }
         Some(GcRefGuard {
             obj,
             _phantom: std::marker::PhantomData,
@@ -362,7 +337,7 @@ where
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.obj.try_as_ref().expect("object was still valid")
+        (*self.obj).as_ref()
     }
 }
 
@@ -380,36 +355,17 @@ where
         Self { obj }
     }
 
-    pub fn try_borrow(&self) -> Option<GcRefGuard<T>> {
-        if !self.obj.is_resolved() {
-            return None;
-        }
-        Some(GcRefGuard {
+    pub fn borrow(&self) -> GcRefGuard<T> {
+        GcRefGuard {
             obj: self.obj.clone(),
             _phantom: std::marker::PhantomData,
-        })
-    }
-
-    pub fn borrow(&self) -> GcRefGuard<T> {
-        self.try_borrow().expect("object was not resolved")
+        }
     }
 }
 
 impl<T> Drop for PinnedGcRef<T> {
     fn drop(&mut self) {
         self.obj.pin_count.set(self.obj.pin_count.get() - 1);
-    }
-}
-
-struct WeakRefContext {
-    inner: Weak<ControlData>,
-}
-
-impl WeakRefContext {
-    pub fn upgrade(&self) -> Option<ControlPtr> {
-        self.inner
-            .upgrade()
-            .map(|inner| ControlPtr { control: inner })
     }
 }
 
