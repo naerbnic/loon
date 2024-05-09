@@ -143,11 +143,25 @@ thread_local! {
     static CURR_ENV: RefCell<Option<ControlPtr>> = const { RefCell::new(None) };
 }
 
+fn with_control_ptr<F, R>(body: F) -> R
+where
+    F: FnOnce(&ControlPtr) -> R,
+{
+    CURR_ENV.with(|env| {
+        body(
+            env.borrow()
+                .as_ref()
+                .expect("Not in thread scope of a GcEnv::with() call"),
+        )
+    })
+}
+
 type RootGatherer = Box<dyn Fn(&mut GcRoots)>;
 
 struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
     root_gatherer: Option<RootGatherer>,
+    pinned_objects: RefCell<HashSet<*const dyn PinnedObject>>,
     alloc_count: Cell<usize>,
     alloc_count_limit: usize,
 }
@@ -165,6 +179,7 @@ impl ControlPtr {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
                 root_gatherer: None,
+                pinned_objects: RefCell::new(HashSet::new()),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
             }),
@@ -179,19 +194,20 @@ impl ControlPtr {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
                 root_gatherer: Some(Box::new(gatherer)),
+                pinned_objects: RefCell::new(HashSet::new()),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: alloc_limit,
             }),
         }
     }
 
-    fn downgrade(&self) -> WeakRefContext {
+    pub fn downgrade(&self) -> WeakRefContext {
         WeakRefContext {
             inner: Rc::downgrade(&self.control),
         }
     }
 
-    fn accept_rc<T>(&self, obj: Rc<InnerType<T>>)
+    pub fn accept_rc<T>(&self, obj: Rc<InnerType<T>>)
     where
         T: GcTraceable + 'static,
     {
@@ -213,7 +229,8 @@ impl ControlPtr {
             live_objects.insert(ptr_id, Box::new(obj_info));
         }
     }
-    fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
+
+    pub fn create_deferred_ref<T>(&self) -> (GcRef<T>, impl FnOnce(T))
     where
         T: GcTraceable + 'static,
     {
@@ -238,7 +255,7 @@ impl ControlPtr {
 
     /// Creates a new reference that is managed by the RefContext that contains
     /// the given value.
-    fn create_ref<T>(&self, value: T) -> GcRef<T>
+    pub fn create_ref<T>(&self, value: T) -> GcRef<T>
     where
         T: GcTraceable + 'static,
     {
@@ -267,6 +284,25 @@ impl ControlPtr {
         }
 
         live_objects.retain(|key, _| reachable.contains(key));
+    }
+
+    /// Adds a pinned object to the context.
+    /// The members of this object will not be garbage collected, as its members
+    /// will work with tracing.
+    ///
+    /// # Safety
+    ///
+    /// The raw pointer must be valid for the time that the object is kept in
+    /// the pinned set. It must be unpinned before the object is moved and/or
+    /// dropped.
+    pub unsafe fn add_pinned_object(&self, obj: *const dyn PinnedObject) {
+        let added = self.control.pinned_objects.borrow_mut().insert(obj);
+        assert!(added)
+    }
+
+    pub unsafe fn remove_pinned_object(&self, obj: *const dyn PinnedObject) {
+        let removed = self.control.pinned_objects.borrow_mut().remove(&obj);
+        assert!(removed)
     }
 }
 
@@ -528,3 +564,59 @@ macro_rules! impl_primitive_gc {
 impl_primitive_gc!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
 impl_primitive_gc!(bool, char);
 impl_primitive_gc!(String);
+
+trait PinnedObject {
+    fn collect_ptrs(&self, visitor: &mut dyn FnMut(PtrKey));
+}
+
+pub struct PinnedObjectWrapper<T>(T);
+
+impl<T> PinnedObject for PinnedObjectWrapper<T>
+where
+    T: GcTraceable,
+{
+    fn collect_ptrs(&self, visitor: &mut dyn FnMut(PtrKey)) {
+        self.0.trace(&mut PtrVisitor(visitor));
+    }
+}
+
+pub struct PinnedRef<'a, T>
+where
+    T: GcTraceable + 'static,
+{
+    pinned: std::pin::Pin<&'a mut PinnedObjectWrapper<T>>,
+}
+
+impl<'a, T> PinnedRef<'a, T>
+where
+    T: GcTraceable + 'static,
+{
+    pub fn new(pinned: std::pin::Pin<&'a mut PinnedObjectWrapper<T>>) -> Self {
+        // Because the object is pinned, and will be for the extent of this object,
+        // we can safely take references to it for the duration of the object's lifetime.
+        with_control_ptr(|ctrl| unsafe { ctrl.add_pinned_object(pinned.as_ref().get_ref()) });
+        Self { pinned }
+    }
+}
+
+impl<T> std::ops::Deref for PinnedRef<'_, T>
+where
+    T: GcTraceable + 'static,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.pinned.as_ref().get_ref().0
+    }
+}
+
+impl<T> std::ops::Drop for PinnedRef<'_, T>
+where
+    T: GcTraceable + 'static,
+{
+    fn drop(&mut self) {
+        with_control_ptr(|ctrl| unsafe {
+            ctrl.remove_pinned_object(self.pinned.as_ref().get_ref())
+        });
+    }
+}
