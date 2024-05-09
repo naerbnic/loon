@@ -4,11 +4,7 @@ use std::{cell::OnceCell, rc::Rc};
 
 use crate::{
     gc::{GcRefVisitor, GcTraceable},
-    runtime::{
-        constants::{self, ValueTable},
-        instructions::InstEvalList,
-        modules::ModuleGlobals,
-    },
+    runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals},
 };
 
 /// A managed function, representing code within the Loon runtime to evaluate.
@@ -19,14 +15,6 @@ pub(crate) struct ManagedFunction {
 }
 
 impl ManagedFunction {
-    pub fn new(globals: ModuleGlobals, constants: ValueTable, inst_list: Rc<InstEvalList>) -> Self {
-        ManagedFunction {
-            globals,
-            constants: constants.into(),
-            inst_list,
-        }
-    }
-
     pub fn new_deferred(globals: ModuleGlobals, inst_list: Rc<InstEvalList>) -> Self {
         ManagedFunction {
             globals,
