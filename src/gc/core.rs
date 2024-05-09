@@ -5,20 +5,22 @@ use std::{
 
 use std::rc::{Rc, Weak};
 
+use super::counter::Counter;
+
 struct InnerType<T>
 where
     T: ?Sized,
 {
-    ref_count: Cell<usize>,
-    pin_count: Cell<usize>,
+    ref_count: Counter,
+    pin_count: Counter,
     contents: T,
 }
 
 impl<T> InnerType<T> {
     pub fn new(contents: T) -> Self {
         Self {
-            ref_count: Cell::new(0),
-            pin_count: Cell::new(0),
+            ref_count: Counter::new(),
+            pin_count: Counter::new(),
             contents,
         }
     }
@@ -76,7 +78,7 @@ where
     T: GcTraceable,
 {
     fn is_pinned(&self) -> bool {
-        self.0.pin_count.get() > 0
+        self.0.pin_count.is_nonzero()
     }
 
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
@@ -88,13 +90,58 @@ where
     }
 }
 
-thread_local! {
-    static CURR_ENV: RefCell<Option<ControlPtr>> = const { RefCell::new(None) };
+mod curr_env {
+    use super::ControlPtr;
+    use std::{cell::RefCell, rc::Rc};
+
+    thread_local! {
+        static CURR_ENV: RefCell<Option<ControlPtr>> = const { RefCell::new(None) };
+    }
+
+    pub fn enter_context(env: ControlPtr) {
+        CURR_ENV.with(|env_cell| {
+            let prev_env = env_cell.borrow_mut().replace(env);
+            assert!(
+                prev_env.is_none(),
+                "nested GcEnv::with() calls are not allowed"
+            );
+        });
+    }
+
+    pub fn exit_context(env: &ControlPtr) {
+        CURR_ENV.with(|env_cell| {
+            let prev_env = env_cell
+                .borrow_mut()
+                .take()
+                .expect("GcEnv::with() was not called");
+            assert!(
+                prev_env.control.collect_guard_count.is_zero(),
+                "Exiting a context with a CollectGuard still active."
+            );
+            assert!(
+                Rc::ptr_eq(&prev_env.control, &env.control),
+                "Exiting a different context than was entered."
+            );
+        });
+    }
+
+    pub fn with_context<F, R>(f: F) -> R
+    where
+        F: FnOnce(&ControlPtr) -> R,
+    {
+        CURR_ENV.with(|env_cell| {
+            let env = env_cell.borrow();
+            let env = env
+                .as_ref()
+                .expect("Not in thread scope of a GcEnv::with() call");
+            f(env)
+        })
+    }
 }
 
 struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
-    collect_guard_count: Cell<usize>,
+    collect_guard_count: Counter,
     alloc_count: Cell<usize>,
     alloc_count_limit: usize,
 }
@@ -110,7 +157,7 @@ impl ControlPtr {
         Self {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
-                collect_guard_count: Cell::new(0),
+                collect_guard_count: Counter::new(),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: alloc_limit,
             }),
@@ -124,9 +171,7 @@ impl ControlPtr {
         self.control
             .alloc_count
             .set(self.control.alloc_count.get() + 1);
-        if self.control.collect_guard_count.get() == 0 {
-            self.attempt_garbage_collect();
-        }
+        self.attempt_garbage_collect();
 
         // We use the pointer as a key to the object in the HashMap.
         let ptr_id = PtrKey::from_rc(&obj);
@@ -152,7 +197,9 @@ impl ControlPtr {
     }
 
     pub fn attempt_garbage_collect(&self) {
-        if self.control.alloc_count.get() >= self.control.alloc_count_limit {
+        if self.control.collect_guard_count.is_zero()
+            && self.control.alloc_count.get() >= self.control.alloc_count_limit
+        {
             self.garbage_collect();
             self.control.alloc_count.set(0);
         }
@@ -204,12 +251,7 @@ impl GcEnv {
     }
 
     pub fn borrow(&self) -> GcEnvGuard {
-        CURR_ENV.with(|env| {
-            let prev_env = env.borrow_mut().replace(self.0.clone());
-            if prev_env.is_some() {
-                panic!("nested GcEnv::with() calls are not allowed");
-            }
-        });
+        curr_env::enter_context(self.0.clone());
         GcEnvGuard { env: self }
     }
 }
@@ -220,13 +262,7 @@ pub struct GcEnvGuard<'a> {
 
 impl Drop for GcEnvGuard<'_> {
     fn drop(&mut self) {
-        CURR_ENV.with(|env| {
-            let prev_env = env
-                .borrow_mut()
-                .take()
-                .expect("GcEnv::with() was not called");
-            assert!(Rc::ptr_eq(&prev_env.control, &self.env.0.control));
-        });
+        curr_env::exit_context(&self.env.0);
     }
 }
 
@@ -234,66 +270,35 @@ pub fn create_ref<T>(value: T) -> GcRef<T>
 where
     T: GcTraceable + 'static,
 {
-    CURR_ENV.with(|env| {
-        let env = env.borrow();
-        env.as_ref()
-            .expect("Not in thread scope of a GcEnv::with() call")
-            .create_ref(value)
-    })
+    curr_env::with_context(|env| env.create_ref(value))
 }
 
 #[cfg(test)]
 pub(super) fn garbage_collect() {
-    CURR_ENV.with(|env| {
-        let env = env.borrow();
-        env.as_ref()
-            .expect("Not in thread scope of a GcEnv::with() call")
-            .garbage_collect();
-    })
+    curr_env::with_context(|env| env.garbage_collect());
 }
 
 pub struct CollectGuard();
 
 impl CollectGuard {
     pub fn new() -> Self {
-        CURR_ENV.with(|env| {
-            let env = env.borrow();
-            let control = &env
-                .as_ref()
-                .expect("Not in thread scope of a GcEnv::with() call")
-                .control;
-            control
-                .collect_guard_count
-                .set(control.collect_guard_count.get() + 1);
+        curr_env::with_context(|env| {
+            env.control.collect_guard_count.increment();
         });
         Self()
     }
 
     pub fn is_guarded() -> bool {
-        CURR_ENV.with(|env| {
-            let env = env.borrow();
-            let control = &env
-                .as_ref()
-                .expect("Not in thread scope of a GcEnv::with() call")
-                .control;
-            control.collect_guard_count.get() > 0
-        })
+        curr_env::with_context(|env| env.control.collect_guard_count.is_nonzero())
     }
 }
 
 impl Drop for CollectGuard {
     fn drop(&mut self) {
-        CURR_ENV.with(|env| {
-            let env = env.borrow();
-            let control = &env
-                .as_ref()
-                .expect("Not in thread scope of a GcEnv::with() call");
-            control
-                .control
-                .collect_guard_count
-                .set(control.control.collect_guard_count.get() - 1);
-            if control.control.collect_guard_count.get() == 0 {
-                control.attempt_garbage_collect();
+        curr_env::with_context(|env| {
+            env.control.collect_guard_count.decrement();
+            if env.control.collect_guard_count.is_zero() {
+                env.attempt_garbage_collect();
             }
         });
     }
@@ -315,7 +320,7 @@ where
     T: GcTraceable + ?Sized + 'static,
 {
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
-        obj.ref_count.set(obj.ref_count.get() + 1);
+        obj.ref_count.increment();
         Self {
             obj: Rc::downgrade(&obj),
         }
@@ -352,7 +357,7 @@ where
 {
     fn clone(&self) -> Self {
         if let Some(obj) = self.obj.upgrade() {
-            obj.ref_count.set(obj.ref_count.get() + 1);
+            obj.ref_count.increment();
         }
         Self {
             obj: self.obj.clone(),
@@ -378,7 +383,7 @@ where
 {
     fn drop(&mut self) {
         if let Some(obj) = self.obj.upgrade() {
-            obj.ref_count.set(obj.ref_count.get() - 1);
+            obj.ref_count.decrement();
         }
     }
 }
@@ -415,7 +420,7 @@ where
 {
     /// Private method to convert a `GcRef` into a `PinnedGcRef`.
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
-        obj.pin_count.set(obj.pin_count.get() + 1);
+        obj.pin_count.increment();
         Self { obj }
     }
 
@@ -432,7 +437,7 @@ where
     T: ?Sized,
 {
     fn drop(&mut self) {
-        self.obj.pin_count.set(self.obj.pin_count.get() - 1);
+        self.obj.pin_count.decrement();
     }
 }
 

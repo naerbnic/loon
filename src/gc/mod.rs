@@ -5,6 +5,7 @@
 //! rather than performant.
 
 mod core;
+mod counter;
 
 pub use core::{create_ref, CollectGuard, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable};
 
