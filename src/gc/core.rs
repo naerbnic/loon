@@ -476,18 +476,3 @@ macro_rules! impl_primitive_gc {
 impl_primitive_gc!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
 impl_primitive_gc!(bool, char);
 impl_primitive_gc!(String);
-
-trait PinnedObject {
-    fn collect_ptrs(&self, visitor: &mut dyn FnMut(PtrKey));
-}
-
-pub struct PinnedObjectWrapper<T>(T);
-
-impl<T> PinnedObject for PinnedObjectWrapper<T>
-where
-    T: GcTraceable,
-{
-    fn collect_ptrs(&self, visitor: &mut dyn FnMut(PtrKey)) {
-        self.0.trace(&mut PtrVisitor(visitor));
-    }
-}
