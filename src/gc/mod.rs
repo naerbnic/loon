@@ -6,7 +6,7 @@
 
 mod core;
 
-pub use core::{create_ref, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable};
+pub use core::{create_ref, CollectGuard, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable};
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,10 @@ use std::{
 
 use std::rc::{Rc, Weak};
 
-struct InnerType<T> {
+struct InnerType<T>
+where
+    T: ?Sized,
+{
     ref_count: Cell<usize>,
     pin_count: Cell<usize>,
     contents: T,
@@ -91,6 +94,7 @@ thread_local! {
 
 struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
+    collect_guard_count: Cell<usize>,
     alloc_count: Cell<usize>,
     alloc_count_limit: usize,
 }
@@ -106,6 +110,7 @@ impl ControlPtr {
         Self {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
+                collect_guard_count: Cell::new(0),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: alloc_limit,
             }),
@@ -116,9 +121,11 @@ impl ControlPtr {
     where
         T: GcTraceable + 'static,
     {
-        if self.control.alloc_count.get() >= self.control.alloc_count_limit {
-            self.garbage_collect();
-            self.control.alloc_count.set(0);
+        self.control
+            .alloc_count
+            .set(self.control.alloc_count.get() + 1);
+        if self.control.collect_guard_count.get() == 0 {
+            self.attempt_garbage_collect();
         }
 
         // We use the pointer as a key to the object in the HashMap.
@@ -142,6 +149,13 @@ impl ControlPtr {
         self.accept_rc(owned_obj);
 
         GcRef::from_rc(obj)
+    }
+
+    pub fn attempt_garbage_collect(&self) {
+        if self.control.alloc_count.get() >= self.control.alloc_count_limit {
+            self.garbage_collect();
+            self.control.alloc_count.set(0);
+        }
     }
 
     pub fn garbage_collect(&self) {
@@ -238,20 +252,67 @@ pub(super) fn garbage_collect() {
     })
 }
 
+pub struct CollectGuard();
+
+impl CollectGuard {
+    pub fn new() -> Self {
+        CURR_ENV.with(|env| {
+            let env = env.borrow();
+            let control = &env
+                .as_ref()
+                .expect("Not in thread scope of a GcEnv::with() call")
+                .control;
+            control
+                .collect_guard_count
+                .set(control.collect_guard_count.get() + 1);
+        });
+        Self()
+    }
+
+    pub fn is_guarded() -> bool {
+        CURR_ENV.with(|env| {
+            let env = env.borrow();
+            let control = &env
+                .as_ref()
+                .expect("Not in thread scope of a GcEnv::with() call")
+                .control;
+            control.collect_guard_count.get() > 0
+        })
+    }
+}
+
+impl Drop for CollectGuard {
+    fn drop(&mut self) {
+        CURR_ENV.with(|env| {
+            let env = env.borrow();
+            let control = &env
+                .as_ref()
+                .expect("Not in thread scope of a GcEnv::with() call");
+            control
+                .control
+                .collect_guard_count
+                .set(control.control.collect_guard_count.get() - 1);
+            if control.control.collect_guard_count.get() == 0 {
+                control.attempt_garbage_collect();
+            }
+        });
+    }
+}
+
 /// A reference to a garbage collected object.
 ///
 /// To preserve safety, we do not allow direct access to the object. Instead,
 /// the object must be accessed through the `with` methods.
 pub struct GcRef<T>
 where
-    T: GcTraceable + 'static,
+    T: GcTraceable + ?Sized + 'static,
 {
     obj: Weak<InnerType<T>>,
 }
 
 impl<T> GcRef<T>
 where
-    T: GcTraceable + 'static,
+    T: GcTraceable + ?Sized + 'static,
 {
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
         obj.ref_count.set(obj.ref_count.get() + 1);
@@ -313,7 +374,7 @@ where
 
 impl<T> Drop for GcRef<T>
 where
-    T: GcTraceable + 'static,
+    T: GcTraceable + ?Sized + 'static,
 {
     fn drop(&mut self) {
         if let Some(obj) = self.obj.upgrade() {
@@ -324,7 +385,7 @@ where
 
 pub struct GcRefGuard<'a, T>
 where
-    T: GcTraceable + 'static,
+    T: GcTraceable + ?Sized + 'static,
 {
     obj: Rc<InnerType<T>>,
     _phantom: std::marker::PhantomData<&'a T>,
@@ -341,13 +402,16 @@ where
     }
 }
 
-pub struct PinnedGcRef<T> {
+pub struct PinnedGcRef<T>
+where
+    T: ?Sized,
+{
     obj: Rc<InnerType<T>>,
 }
 
 impl<T> PinnedGcRef<T>
 where
-    T: GcTraceable + 'static,
+    T: GcTraceable + ?Sized + 'static,
 {
     /// Private method to convert a `GcRef` into a `PinnedGcRef`.
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
@@ -363,7 +427,10 @@ where
     }
 }
 
-impl<T> Drop for PinnedGcRef<T> {
+impl<T> Drop for PinnedGcRef<T>
+where
+    T: ?Sized,
+{
     fn drop(&mut self) {
         self.obj.pin_count.set(self.obj.pin_count.get() - 1);
     }
