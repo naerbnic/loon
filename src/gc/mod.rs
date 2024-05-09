@@ -82,10 +82,8 @@ mod tests {
     #[test]
     fn test_simple_gc() {
         GcEnv::new().with(|| {
-            let i_ref = create_ref(4);
-            let mut roots = GcRoots::new();
-            roots.add(&i_ref);
-            garbage_collect(&roots);
+            let i_ref = create_ref(4).pin();
+            garbage_collect();
             let val = *i_ref.borrow();
             assert_eq!(val, 4);
         })
@@ -95,7 +93,7 @@ mod tests {
     fn test_simple_gc_collect() {
         GcEnv::new().with(|| {
             let i_ref = create_ref(4);
-            garbage_collect(&GcRoots::new());
+            garbage_collect();
             let val = i_ref.try_borrow();
             assert!(val.is_none());
         })
@@ -114,12 +112,15 @@ mod tests {
             assert!(!drop1());
             assert!(!drop2());
 
+            let pin_node1_ref = node1_ref.pin();
+
             // With either of the two, both should not be collected.
-            garbage_collect(&gc_roots!(&node1_ref));
+            garbage_collect();
             assert!(!drop1());
             assert!(!drop2());
 
-            garbage_collect(&gc_roots!());
+            drop(pin_node1_ref);
+            garbage_collect();
             assert!(drop1());
             assert!(drop2());
         })

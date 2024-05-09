@@ -7,7 +7,7 @@ use std::rc::{Rc, Weak};
 
 struct InnerType<T> {
     ref_count: Cell<usize>,
-    lock_count: Cell<usize>,
+    pin_count: Cell<usize>,
     contents: OnceCell<T>,
 }
 
@@ -15,14 +15,14 @@ impl<T> InnerType<T> {
     pub fn new(value: T) -> Self {
         Self {
             ref_count: Cell::new(0),
-            lock_count: Cell::new(0),
+            pin_count: Cell::new(0),
             contents: value.into(),
         }
     }
     pub fn new_empty() -> Self {
         Self {
             ref_count: Cell::new(0),
-            lock_count: Cell::new(0),
+            pin_count: Cell::new(0),
             contents: OnceCell::new(),
         }
     }
@@ -53,6 +53,7 @@ impl PtrKey {
 }
 
 trait ObjectInfo {
+    fn is_pinned(&self) -> bool;
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey));
     fn destroy(self: Box<Self>);
 }
@@ -96,6 +97,10 @@ impl<T> ObjectInfo for ObjectInfoImpl<T>
 where
     T: GcTraceable,
 {
+    fn is_pinned(&self) -> bool {
+        self.0.pin_count.get() > 0
+    }
+
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
         if let Some(obj) = self.0.try_as_ref() {
             obj.trace(&mut PtrVisitor(ptr_visitor));
@@ -128,7 +133,6 @@ type RootGatherer = Box<dyn Fn(&mut GcRoots)>;
 
 struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
-    root_gatherer: Option<RootGatherer>,
     pinned_objects: RefCell<HashSet<*const dyn PinnedObject>>,
     alloc_count: Cell<usize>,
     alloc_count_limit: usize,
@@ -146,7 +150,6 @@ impl ControlPtr {
         Self {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
-                root_gatherer: None,
                 pinned_objects: RefCell::new(HashSet::new()),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: Self::DEFAULT_ALLOC_COUNT_LIMIT,
@@ -161,7 +164,6 @@ impl ControlPtr {
         Self {
             control: Rc::new(ControlData {
                 live_objects: RefCell::new(HashMap::new()),
-                root_gatherer: Some(Box::new(gatherer)),
                 pinned_objects: RefCell::new(HashSet::new()),
                 alloc_count: Cell::new(0),
                 alloc_count_limit: alloc_limit,
@@ -179,13 +181,9 @@ impl ControlPtr {
     where
         T: GcTraceable + 'static,
     {
-        if let Some(gatherer) = &self.control.root_gatherer {
-            if self.control.alloc_count.get() >= self.control.alloc_count_limit {
-                let mut roots = GcRoots::new();
-                gatherer(&mut roots);
-                self.garbage_collect(&roots);
-                self.control.alloc_count.set(0);
-            }
+        if self.control.alloc_count.get() >= self.control.alloc_count_limit {
+            self.garbage_collect();
+            self.control.alloc_count.set(0);
         }
 
         // We use the pointer as a key to the object in the HashMap.
@@ -204,9 +202,9 @@ impl ControlPtr {
     {
         // We create a weakref that we can resurrect when needed.
         let deferred_obj = Rc::new(InnerType::new_empty());
-        let obj = Rc::downgrade(&deferred_obj);
+        let obj = deferred_obj.clone();
         let weak_ctxt = self.downgrade();
-        (GcRef { obj }, move |value| {
+        (GcRef::from_rc(obj), move |value| {
             let Some(ctxt) = weak_ctxt.upgrade() else {
                 return;
             };
@@ -228,16 +226,19 @@ impl ControlPtr {
         T: GcTraceable + 'static,
     {
         let owned_obj = Rc::new(InnerType::new(value));
-        let obj = Rc::downgrade(&owned_obj);
+        let obj = owned_obj.clone();
         self.accept_rc(owned_obj);
 
-        GcRef { obj }
+        GcRef::from_rc(obj)
     }
 
-    pub fn garbage_collect(&self, roots: &GcRoots) {
+    pub fn garbage_collect(&self) {
         let mut live_objects = self.control.live_objects.borrow_mut();
         let mut reachable = HashSet::new();
-        let mut worklist: VecDeque<_> = roots.roots.iter().cloned().collect();
+        let mut worklist: VecDeque<_> = live_objects
+            .iter()
+            .filter_map(|(k, v)| if v.is_pinned() { Some(*k) } else { None })
+            .collect();
 
         while let Some(ptr_id) = worklist.pop_front() {
             if reachable.insert(ptr_id) {
@@ -284,13 +285,6 @@ pub struct GcEnv(ControlPtr);
 impl GcEnv {
     pub fn new() -> Self {
         Self(ControlPtr::new())
-    }
-
-    pub fn with_root_gatherer<F>(alloc_limit: usize, gatherer: F) -> Self
-    where
-        F: Fn(&mut GcRoots) + 'static,
-    {
-        Self(ControlPtr::with_root_gatherer(alloc_limit, gatherer))
     }
 
     pub fn with<F, R>(&self, body: F) -> R
@@ -361,12 +355,12 @@ where
     })
 }
 
-pub(super) fn garbage_collect(roots: &GcRoots) {
+pub(super) fn garbage_collect() {
     CURR_ENV.with(|env| {
         let env = env.borrow();
         env.as_ref()
             .expect("Not in thread scope of a GcEnv::with() call")
-            .garbage_collect(roots);
+            .garbage_collect();
     })
 }
 
@@ -425,6 +419,9 @@ where
     T: GcTraceable + 'static,
 {
     fn clone(&self) -> Self {
+        if let Some(obj) = self.obj.upgrade() {
+            obj.ref_count.set(obj.ref_count.get() + 1);
+        }
         Self {
             obj: self.obj.clone(),
         }
@@ -483,7 +480,7 @@ where
 {
     /// Private method to convert a `GcRef` into a `PinnedGcRef`.
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
-        obj.lock_count.set(obj.lock_count.get() + 1);
+        obj.pin_count.set(obj.pin_count.get() + 1);
         Self { obj }
     }
 
@@ -504,7 +501,7 @@ where
 
 impl<T> Drop for PinnedGcRef<T> {
     fn drop(&mut self) {
-        self.obj.lock_count.set(self.obj.lock_count.get() - 1);
+        self.obj.pin_count.set(self.obj.pin_count.get() - 1);
     }
 }
 

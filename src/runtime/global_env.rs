@@ -54,21 +54,8 @@ pub struct GlobalEnv(Rc<Inner>);
 impl GlobalEnv {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let inner_rc = Rc::new_cyclic(|inner_weak| Inner {
-            gc_context: GcEnv::with_root_gatherer(1, {
-                let inner: Weak<Inner> = inner_weak.clone();
-                move |gc_roots| {
-                    let Some(inner) = inner.upgrade() else {
-                        return;
-                    };
-                    {
-                        let loaded_modules = inner.loaded_modules.borrow();
-                        for value in loaded_modules.values() {
-                            gc_roots.visit(value);
-                        }
-                    }
-                }
-            }),
+        let inner_rc = Rc::new(Inner {
+            gc_context: GcEnv::new(),
             loaded_modules: RefCell::new(HashMap::new()),
             top_level_contents: RefCell::new(HashMap::new()),
             eval_context_contents: RefCell::new(HashMap::new()),
