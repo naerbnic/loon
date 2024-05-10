@@ -1,8 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap};
 
 use super::{
     error::{Result, RuntimeError},
-    eval_context::EvalContextContents,
     inst_set::{
         Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, Compare,
         ListAppend, ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal,
@@ -10,7 +9,6 @@ use super::{
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
-    top_level::TopLevelContents,
     value::{Function, Value},
 };
 use crate::{
@@ -23,10 +21,7 @@ use crate::{
 };
 
 struct Inner {
-    gc_context: GcEnv,
     loaded_modules: RefCell<HashMap<ModuleId, Module>>,
-    top_level_contents: RefCell<HashMap<*const (), TopLevelContents>>,
-    eval_context_contents: RefCell<HashMap<*const (), EvalContextContents>>,
 }
 
 impl Inner {
@@ -83,31 +78,29 @@ impl GcTraceable for Inner {
         for module in loaded_modules.values() {
             module.trace(visitor);
         }
-        for contents in self.top_level_contents.borrow().values() {
-            contents.trace(visitor);
-        }
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct GlobalEnv(Rc<Inner>);
+pub(crate) struct GlobalEnv {
+    gc_env: GcEnv,
+    inner: PinnedGcRef<Inner>,
+}
 
 impl GlobalEnv {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let inner_rc = Rc::new(Inner {
-            gc_context: GcEnv::new(1),
+        let gc_env = GcEnv::new(1);
+        let inner = gc_env.create_pinned_ref(Inner {
             loaded_modules: RefCell::new(HashMap::new()),
-            top_level_contents: RefCell::new(HashMap::new()),
-            eval_context_contents: RefCell::new(HashMap::new()),
         });
-        GlobalEnv(inner_rc)
+        GlobalEnv { gc_env, inner }
     }
 
     pub fn lock_collect(&self) -> GlobalEnvLock {
         GlobalEnvLock {
-            gc_guard: self.0.gc_context.lock_collect(),
-            inner: &self.0,
+            gc_guard: self.gc_env.lock_collect(),
+            inner: &self.inner,
         }
     }
 
@@ -115,7 +108,7 @@ impl GlobalEnv {
     where
         T: GcTraceable + 'static,
     {
-        self.0.gc_context.create_pinned_ref(value)
+        self.gc_env.create_pinned_ref(value)
     }
 
     /// Loads a module into this global context.
@@ -129,12 +122,15 @@ impl GlobalEnv {
     ) -> Result<()> {
         let collect_guard = self.lock_collect();
         let module = Module::from_binary(&collect_guard, module)?;
-        self.0.loaded_modules.borrow_mut().insert(module_id, module);
+        self.inner
+            .loaded_modules
+            .borrow_mut()
+            .insert(module_id, module);
         Ok(())
     }
 
     pub(super) fn get_init_function(&self, module_id: &ModuleId) -> Result<Option<Function>> {
-        let loaded_modules = self.0.loaded_modules.borrow();
+        let loaded_modules = self.inner.loaded_modules.borrow();
         loaded_modules
             .get(module_id)
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
@@ -142,49 +138,12 @@ impl GlobalEnv {
     }
 
     pub(super) fn set_module_initialized(&self, module_id: &ModuleId) -> Result<()> {
-        let loaded_modules = self.0.loaded_modules.borrow();
+        let loaded_modules = self.inner.loaded_modules.borrow();
         loaded_modules
             .get(module_id)
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
             .set_is_initialized();
         Ok(())
-    }
-
-    pub(super) fn add_top_level_contents(&self, contents: TopLevelContents) {
-        self.0
-            .top_level_contents
-            .borrow_mut()
-            .insert(contents.get_ptr(), contents);
-    }
-
-    pub(super) fn remove_top_level_contents(&self, contents: TopLevelContents) {
-        self.0
-            .top_level_contents
-            .borrow_mut()
-            .remove(&contents.get_ptr());
-    }
-
-    pub(super) fn add_eval_context_contents(&self, contents: EvalContextContents) {
-        self.0
-            .eval_context_contents
-            .borrow_mut()
-            .insert(contents.get_ptr(), contents);
-    }
-
-    pub(super) fn remove_eval_context_contents(&self, contents: EvalContextContents) {
-        self.0
-            .eval_context_contents
-            .borrow_mut()
-            .remove(&contents.get_ptr());
-    }
-}
-
-impl GcTraceable for GlobalEnv {
-    fn trace<V>(&self, visitor: &mut V)
-    where
-        V: GcRefVisitor,
-    {
-        self.0.trace(visitor);
     }
 }
 

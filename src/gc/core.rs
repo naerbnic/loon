@@ -185,6 +185,7 @@ impl ControlPtr {
 /// This object is responsible for generating `Ref<T>` objects that are managed
 /// by the garbage collector. Garbage collection happens only on demand
 /// through the `garbage_collect()` method.
+#[derive(Clone)]
 pub struct GcEnv(ControlPtr);
 
 impl GcEnv {

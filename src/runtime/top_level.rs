@@ -1,6 +1,7 @@
-use std::rc::{Rc, Weak};
-
-use crate::{binary::modules::ModuleId, gc::GcTraceable};
+use crate::{
+    binary::modules::ModuleId,
+    gc::{GcTraceable, PinnedGcRef},
+};
 
 use super::{
     error::Result,
@@ -43,15 +44,14 @@ impl GcTraceable for Inner {
 
 pub struct TopLevelRuntime {
     global_context: GlobalEnv,
-    inner: Rc<Inner>,
+    inner: PinnedGcRef<Inner>,
 }
 
 impl TopLevelRuntime {
     pub(crate) fn new(global_context: GlobalEnv) -> Self {
-        let inner = Rc::new(Inner {
+        let inner = global_context.create_pinned_ref(Inner {
             stack: LocalStack::new(),
         });
-        global_context.add_top_level_contents(TopLevelContents(Rc::downgrade(&inner)));
         TopLevelRuntime {
             global_context,
             inner,
@@ -80,31 +80,5 @@ impl TopLevelRuntime {
             self.global_context.set_module_initialized(module_id)?;
         }
         Ok(())
-    }
-}
-
-impl Drop for TopLevelRuntime {
-    fn drop(&mut self) {
-        let contents = TopLevelContents(Rc::downgrade(&self.inner));
-        self.global_context.remove_top_level_contents(contents);
-    }
-}
-
-pub(super) struct TopLevelContents(Weak<Inner>);
-
-impl TopLevelContents {
-    pub fn get_ptr(&self) -> *const () {
-        self.0.as_ptr() as *const ()
-    }
-}
-
-impl GcTraceable for TopLevelContents {
-    fn trace<V>(&self, visitor: &mut V)
-    where
-        V: crate::gc::GcRefVisitor,
-    {
-        if let Some(inner) = self.0.upgrade() {
-            inner.trace(visitor);
-        }
     }
 }

@@ -1,9 +1,6 @@
-use std::{
-    cell::RefCell,
-    rc::{Rc, Weak},
-};
+use std::cell::RefCell;
 
-use crate::gc::GcTraceable;
+use crate::gc::{GcTraceable, PinnedGcRef};
 
 use super::{
     error::Result,
@@ -31,15 +28,14 @@ impl GcTraceable for Inner {
 pub struct EvalContext<'a> {
     global_context: &'a GlobalEnv,
     parent_stack: &'a LocalStack,
-    inner: Rc<Inner>,
+    inner: PinnedGcRef<Inner>,
 }
 
 impl<'a> EvalContext<'a> {
     pub fn new(global_context: &'a GlobalEnv, parent_stack: &'a LocalStack) -> Self {
-        let inner = Rc::new(Inner {
+        let inner = global_context.create_pinned_ref(Inner {
             call_stack: RefCell::new(Vec::new()),
         });
-        global_context.add_eval_context_contents(EvalContextContents(Rc::downgrade(&inner)));
         EvalContext {
             global_context,
             parent_stack,
@@ -85,32 +81,6 @@ impl<'a> EvalContext<'a> {
                     self.inner.call_stack.borrow_mut().push(stack_frame);
                 }
             }
-        }
-    }
-}
-
-impl Drop for EvalContext<'_> {
-    fn drop(&mut self) {
-        let contents = EvalContextContents(Rc::downgrade(&self.inner));
-        self.global_context.remove_eval_context_contents(contents);
-    }
-}
-
-pub struct EvalContextContents(Weak<Inner>);
-
-impl EvalContextContents {
-    pub fn get_ptr(&self) -> *const () {
-        self.0.as_ptr() as *const ()
-    }
-}
-
-impl GcTraceable for EvalContextContents {
-    fn trace<V>(&self, visitor: &mut V)
-    where
-        V: crate::gc::GcRefVisitor,
-    {
-        if let Some(ptr) = self.0.upgrade() {
-            ptr.trace(visitor);
         }
     }
 }
