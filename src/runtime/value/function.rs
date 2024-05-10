@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
 use crate::{
-    gc::{self, GcRef, GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable,
         error::{Result, RuntimeError},
-        global_env::GlobalEnv,
+        global_env::GlobalEnvLock,
         instructions::InstEvalList,
         modules::ModuleGlobals,
         stack_frame::{LocalStack, StackFrame},
@@ -83,7 +83,7 @@ pub(crate) enum Function {
 
 impl Function {
     pub fn new_managed_deferred(
-        global_env: &GlobalEnv,
+        global_env: &GlobalEnvLock,
         global: ModuleGlobals,
         inst_list: Rc<InstEvalList>,
     ) -> (Self, impl FnOnce(ValueTable)) {
@@ -104,7 +104,7 @@ impl Function {
         )
     }
 
-    pub fn new_native<T>(global_env: &GlobalEnv, native_func: T) -> Self
+    pub fn new_native<T>(global_env: &GlobalEnvLock, native_func: T) -> Self
     where
         T: native::NativeFunction + 'static,
     {
@@ -114,7 +114,7 @@ impl Function {
     }
 
     pub fn new_closure(
-        global_env: &GlobalEnv,
+        global_env: &GlobalEnvLock,
         function: GcRef<BaseFunction>,
         captured_values: Vec<Value>,
     ) -> Self {
@@ -126,7 +126,7 @@ impl Function {
 
     pub fn bind_front(
         &self,
-        global_env: &GlobalEnv,
+        global_env: &GlobalEnvLock,
         captured_values: impl Sequence<Value>,
     ) -> Self {
         match self {

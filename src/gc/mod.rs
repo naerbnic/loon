@@ -7,15 +7,10 @@
 mod core;
 mod counter;
 
-pub use core::{
-    create_pinned_ref, create_ref, is_collect_locked, lock_collection, CollectGuard, GcEnv,
-    GcEnvGuard, GcRef, GcRefVisitor, GcTraceable, PinnedGcRef,
-};
+pub use core::{CollectGuard, GcEnv, GcRef, GcRefVisitor, GcTraceable, PinnedGcRef};
 
 #[cfg(test)]
 mod tests {
-    use tests::core::garbage_collect;
-
     use super::*;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
@@ -62,57 +57,54 @@ mod tests {
 
     #[test]
     fn test_ref_works() {
-        GcEnv::new(100).with(|| {
-            let i_ref = create_pinned_ref(4).into_ref();
-            let val = *i_ref.borrow();
-            assert_eq!(val, 4);
-        })
+        let env = GcEnv::new(100);
+        let i_ref = env.create_pinned_ref(4).into_ref();
+        let val = *i_ref.borrow();
+        assert_eq!(val, 4);
     }
 
     #[test]
     fn test_simple_gc() {
-        GcEnv::new(100).with(|| {
-            let i_ref = create_pinned_ref(4);
-            let i_ref = i_ref.to_ref();
-            garbage_collect();
-            let val = *i_ref.borrow();
-            assert_eq!(val, 4);
-        })
+        let env = GcEnv::new(100);
+        let i_ref = env.create_pinned_ref(4);
+        let i_ref = i_ref.to_ref();
+        env.force_collect();
+        let val = *i_ref.borrow();
+        assert_eq!(val, 4);
     }
 
     #[test]
     fn test_simple_gc_collect() {
-        GcEnv::new(100).with(|| {
-            let i_ref = create_pinned_ref(4).into_ref();
-            garbage_collect();
-            let val = i_ref.try_borrow();
-            assert!(val.is_none());
-        })
+        let env = GcEnv::new(100);
+        let i_ref = env.create_pinned_ref(4).into_ref();
+        env.force_collect();
+        let val = i_ref.try_borrow();
+        assert!(val.is_none());
     }
 
     #[test]
     fn loop_collects() {
-        GcEnv::new(100).with(|| {
-            let (node1, drop1) = Node::new();
-            let (node2, drop2) = Node::new();
-            let node2_ref = create_pinned_ref(node2);
-            let node1_ref = create_pinned_ref(node1);
-            node1_ref.add_child(node2_ref.to_ref());
-            node2_ref.add_child(node1_ref.to_ref());
-            assert!(!drop1());
-            assert!(!drop2());
+        let env = GcEnv::new(100);
 
-            drop(node2_ref);
+        let (node1, drop1) = Node::new();
+        let (node2, drop2) = Node::new();
+        let node2_ref = env.create_pinned_ref(node2);
+        let node1_ref = env.create_pinned_ref(node1);
+        node1_ref.add_child(node2_ref.to_ref());
+        node2_ref.add_child(node1_ref.to_ref());
+        assert!(!drop1());
+        assert!(!drop2());
 
-            // With either of the two, both should not be collected.
-            garbage_collect();
-            assert!(!drop1());
-            assert!(!drop2());
+        drop(node2_ref);
 
-            drop(node1_ref);
-            garbage_collect();
-            assert!(drop1());
-            assert!(drop2());
-        })
+        // With either of the two, both should not be collected.
+        env.force_collect();
+        assert!(!drop1());
+        assert!(!drop2());
+
+        drop(node1_ref);
+        env.force_collect();
+        assert!(drop1());
+        assert!(drop2());
     }
 }

@@ -90,55 +90,6 @@ where
     }
 }
 
-mod curr_env {
-    use super::ControlPtr;
-    use std::{cell::RefCell, rc::Rc};
-
-    thread_local! {
-        static CURR_ENV: RefCell<Option<ControlPtr>> = const { RefCell::new(None) };
-    }
-
-    pub fn enter_context(env: ControlPtr) {
-        CURR_ENV.with(|env_cell| {
-            let prev_env = env_cell.borrow_mut().replace(env);
-            assert!(
-                prev_env.is_none(),
-                "nested GcEnv::with() calls are not allowed"
-            );
-        });
-    }
-
-    pub fn exit_context(env: &ControlPtr) {
-        CURR_ENV.with(|env_cell| {
-            let prev_env = env_cell
-                .borrow_mut()
-                .take()
-                .expect("GcEnv::with() was not called");
-            assert!(
-                prev_env.control.collect_guard_count.is_zero(),
-                "Exiting a context with a CollectGuard still active."
-            );
-            assert!(
-                Rc::ptr_eq(&prev_env.control, &env.control),
-                "Exiting a different context than was entered."
-            );
-        });
-    }
-
-    pub fn with_context<F, R>(f: F) -> R
-    where
-        F: FnOnce(&ControlPtr) -> R,
-    {
-        CURR_ENV.with(|env_cell| {
-            let env = env_cell.borrow();
-            let env = env
-                .as_ref()
-                .expect("Not in thread scope of a GcEnv::with() call");
-            f(env)
-        })
-    }
-}
-
 struct ControlData {
     live_objects: RefCell<HashMap<PtrKey, Box<dyn ObjectInfo>>>,
     collect_guard_count: Counter,
@@ -227,10 +178,6 @@ impl ControlPtr {
 
         live_objects.retain(|key, _| reachable.contains(key));
     }
-
-    pub fn is_collect_locked(&self) -> bool {
-        self.control.collect_guard_count.is_nonzero()
-    }
 }
 
 /// The main context object that manages a set of garbage collected objects.
@@ -245,86 +192,54 @@ impl GcEnv {
         Self(ControlPtr::new(alloc_limit))
     }
 
-    pub fn with<F, R>(&self, body: F) -> R
+    pub fn lock_collect(&self) -> CollectGuard {
+        CollectGuard::new(&self.0)
+    }
+
+    pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>
     where
-        F: FnOnce() -> R,
+        T: GcTraceable + 'static,
     {
-        let _borrow = self.borrow();
-
-        body()
+        let collect_guard = self.lock_collect();
+        collect_guard.create_ref(value).pin()
     }
 
-    pub fn borrow(&self) -> GcEnvGuard {
-        curr_env::enter_context(self.0.clone());
-        GcEnvGuard { env: self }
+    #[cfg(test)]
+    pub fn force_collect(&self) {
+        self.0.garbage_collect();
     }
 }
 
-pub struct GcEnvGuard<'a> {
-    env: &'a GcEnv,
+pub struct CollectGuard<'a>(&'a ControlPtr);
+
+impl<'a> CollectGuard<'a> {
+    fn new(control_ptr: &'a ControlPtr) -> Self {
+        control_ptr.control.collect_guard_count.increment();
+        Self(control_ptr)
+    }
+
+    pub fn create_ref<T>(&self, value: T) -> GcRef<T>
+    where
+        T: GcTraceable + 'static,
+    {
+        self.0.create_ref(value)
+    }
 }
 
-impl Drop for GcEnvGuard<'_> {
+impl<'a> Clone for CollectGuard<'a> {
+    fn clone(&self) -> Self {
+        self.0.control.collect_guard_count.increment();
+        Self(self.0)
+    }
+}
+
+impl<'a> Drop for CollectGuard<'a> {
     fn drop(&mut self) {
-        curr_env::exit_context(&self.env.0);
+        self.0.control.collect_guard_count.decrement();
+        if self.0.control.collect_guard_count.is_zero() {
+            self.0.attempt_garbage_collect();
+        }
     }
-}
-
-pub struct CollectGuard();
-
-impl CollectGuard {
-    fn new() -> Self {
-        curr_env::with_context(|env| {
-            env.control.collect_guard_count.increment();
-        });
-        Self()
-    }
-}
-
-impl Drop for CollectGuard {
-    fn drop(&mut self) {
-        curr_env::with_context(|env| {
-            env.control.collect_guard_count.decrement();
-            if env.control.collect_guard_count.is_zero() {
-                env.attempt_garbage_collect();
-            }
-        });
-    }
-}
-
-pub fn lock_collection() -> CollectGuard {
-    CollectGuard::new()
-}
-
-pub fn is_collect_locked() -> bool {
-    curr_env::with_context(|env| env.is_collect_locked())
-}
-
-/// Create a new GcRef for a value.
-///
-/// Requires that there is a current GcEnv in the thread context, and
-/// that collection is currently locked. If collection is not locked, then
-/// the returned reference can be collected at any time.
-pub fn create_ref<T>(value: T) -> GcRef<T>
-where
-    T: GcTraceable + 'static,
-{
-    curr_env::with_context(|env| {
-        assert!(env.is_collect_locked());
-        env.create_ref(value)
-    })
-}
-
-pub fn create_pinned_ref<T>(value: T) -> PinnedGcRef<T>
-where
-    T: GcTraceable + 'static,
-{
-    curr_env::with_context(|env| env.create_ref(value).pin())
-}
-
-#[cfg(test)]
-pub(super) fn garbage_collect() {
-    curr_env::with_context(|env| env.garbage_collect());
 }
 
 /// A reference to a garbage collected object.

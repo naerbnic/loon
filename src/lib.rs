@@ -55,11 +55,13 @@ mod tests {
             stack.push_int(1);
             stack.push_int(2);
             stack.push_native_function(|mut ctxt| {
-                let mut stack = ctxt.stack();
-                let i1 = stack.get_int(StackIndex::FromTop(0))?;
-                let i2 = stack.get_int(StackIndex::FromTop(1))?;
-                stack.pop_n(2)?;
-                stack.push_int(i1.add_owned(i2));
+                {
+                    let mut stack = ctxt.stack();
+                    let i1 = stack.get_int(StackIndex::FromTop(0))?;
+                    let i2 = stack.get_int(StackIndex::FromTop(1))?;
+                    stack.pop_n(2)?;
+                    stack.push_int(i1.add_owned(i2));
+                }
                 Ok(ctxt.return_with(1))
             });
         }

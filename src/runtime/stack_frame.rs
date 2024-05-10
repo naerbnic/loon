@@ -12,7 +12,7 @@ use super::{
     constants::ValueTable,
     context::InstEvalContext,
     error::{Result, RuntimeError},
-    global_env::GlobalEnv,
+    global_env::{GlobalEnv, GlobalEnvLock},
     instructions::{
         CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
     },
@@ -148,19 +148,19 @@ impl Sequence<Value> for LocalStackTop<'_> {
 }
 
 pub struct StackContext<'a> {
-    global_context: &'a GlobalEnv,
+    env_lock: GlobalEnvLock<'a>,
     stack: &'a LocalStack,
 }
 
 impl<'a> StackContext<'a> {
-    pub(crate) fn new(global_context: &'a GlobalEnv, stack: &'a LocalStack) -> Self {
+    pub(crate) fn new(env_lock: &GlobalEnvLock<'a>, stack: &'a LocalStack) -> Self {
         StackContext {
-            global_context,
+            env_lock: env_lock.clone(),
             stack,
         }
     }
     pub fn push_import(&mut self, source: &ImportSource) -> Result<()> {
-        let value = self.global_context.get_import(source)?;
+        let value = self.env_lock.get_import(source)?;
         self.stack.push(value);
         Ok(())
     }
@@ -190,16 +190,15 @@ impl<'a> StackContext<'a> {
         // FIXME: Which direction should the list be from the stack?
         // Current here is from first push to last.
         list.reverse();
-        self.stack.push(Value::List(
-            self.global_context.create_ref(List::from_iter(list)),
-        ));
+        self.stack
+            .push(Value::List(self.env_lock.create_ref(List::from_iter(list))));
         Ok(())
     }
 
     pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
         let function = self.stack.pop()?.as_function()?.clone();
         let captured_values = self.stack.drain_top_n(num_args)?;
-        let new_value = Value::Function(function.bind_front(self.global_context, captured_values));
+        let new_value = Value::Function(function.bind_front(&self.env_lock, captured_values));
         self.stack.push(new_value);
         Ok(())
     }
@@ -209,7 +208,7 @@ impl<'a> StackContext<'a> {
         F: Fn(NativeFunctionContext) -> Result<NativeFunctionResult> + 'static,
     {
         self.stack.push(Value::Function(Function::new_native(
-            self.global_context,
+            &self.env_lock,
             function,
         )));
     }

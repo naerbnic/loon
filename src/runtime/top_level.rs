@@ -1,9 +1,6 @@
 use std::rc::{Rc, Weak};
 
-use crate::{
-    binary::modules::ModuleId,
-    gc::{GcEnvGuard, GcTraceable, PinnedGcRef},
-};
+use crate::{binary::modules::ModuleId, gc::GcTraceable};
 
 use super::{
     error::Result,
@@ -14,7 +11,6 @@ use super::{
 };
 
 pub struct Stack<'a> {
-    _gc_guard: GcEnvGuard<'a>,
     stack_context: StackContext<'a>,
 }
 
@@ -51,7 +47,7 @@ pub struct TopLevelRuntime {
 }
 
 impl TopLevelRuntime {
-    pub fn new(global_context: GlobalEnv) -> Self {
+    pub(crate) fn new(global_context: GlobalEnv) -> Self {
         let inner = Rc::new(Inner {
             stack: LocalStack::new(),
         });
@@ -64,8 +60,10 @@ impl TopLevelRuntime {
 
     pub fn stack(&self) -> Stack {
         Stack {
-            _gc_guard: self.global_context.gc_borrow(),
-            stack_context: StackContext::new(&self.global_context, &self.inner.stack),
+            stack_context: StackContext::new(
+                &self.global_context.lock_collect(),
+                &self.inner.stack,
+            ),
         }
     }
 

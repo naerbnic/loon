@@ -9,12 +9,12 @@ use super::{
     context::ConstResolutionContext,
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
+    global_env::GlobalEnvLock,
     value::{Function, Value},
 };
 use crate::{
     binary::{modules::ModuleMemberId, ConstModule},
     gc::{GcRef, GcTraceable},
-    runtime::global_env::GlobalEnv,
 };
 
 pub struct ModuleGlobalsInner {
@@ -38,7 +38,7 @@ impl GcTraceable for ModuleGlobalsInner {
 pub struct ModuleGlobals(GcRef<ModuleGlobalsInner>);
 
 impl ModuleGlobals {
-    pub fn from_size_empty(global_env: &GlobalEnv, size: u32) -> Self {
+    pub fn from_size_empty(global_env: &GlobalEnvLock, size: u32) -> Self {
         let mut globals = Vec::with_capacity(usize::try_from(size).unwrap());
         for _ in 0..size {
             globals.push(RefCell::new(None));
@@ -91,7 +91,7 @@ struct Inner {
 pub struct Module(Rc<Inner>);
 
 impl Module {
-    pub fn from_binary(ctxt: &GlobalEnv, module: &ConstModule) -> Result<Self> {
+    pub fn from_binary(ctxt: &GlobalEnvLock, module: &ConstModule) -> Result<Self> {
         // Resolve imports
         let import_values = module
             .imports()
@@ -100,8 +100,10 @@ impl Module {
             .collect::<Result<Vec<_>>>()?;
         let module_globals = ModuleGlobals::from_size_empty(ctxt, module.global_table_size());
         let import_env = ModuleImportEnvironment::new(import_values);
-        let const_ctxt = ConstResolutionContext::new(ctxt, &module_globals, &import_env);
-        let members = ValueTable::from_binary(module.const_table(), &const_ctxt)?;
+        let members = {
+            let const_ctxt = ConstResolutionContext::new(ctxt, &module_globals, &import_env);
+            ValueTable::from_binary(module.const_table(), &const_ctxt)?
+        };
         // The module is already initialized if there is no initializer to run.
         let is_initialized = module.initializer().is_none();
         Ok(Module(Rc::new(Inner {

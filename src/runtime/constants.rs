@@ -100,11 +100,10 @@ mod tests {
         ];
 
         let global_ctxt = GlobalEnv::new();
-        let _borrow = global_ctxt.gc_borrow();
-        let _collect_guard = global_ctxt.gc_lock_collection();
-        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
+        let ctxt_lock = global_ctxt.lock_collect();
+        let module_globals = ModuleGlobals::from_size_empty(&ctxt_lock, 0);
         let import_environment = ModuleImportEnvironment::new(vec![]);
-        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
+        let ctxt = ConstResolutionContext::new(&ctxt_lock, &module_globals, &import_environment);
 
         let resolved_values = ValueTable::from_binary(&const_table, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 3);
@@ -137,11 +136,10 @@ mod tests {
         ];
 
         let global_ctxt = GlobalEnv::new();
-        let _borrow = global_ctxt.gc_borrow();
-        let _collect_guard = global_ctxt.gc_lock_collection();
-        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
+        let ctxt_lock = global_ctxt.lock_collect();
+        let module_globals = ModuleGlobals::from_size_empty(&ctxt_lock, 0);
         let import_environment = ModuleImportEnvironment::new(vec![]);
-        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
+        let ctxt = ConstResolutionContext::new(&ctxt_lock, &module_globals, &import_environment);
 
         let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);

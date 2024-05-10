@@ -19,7 +19,7 @@ use crate::{
         instructions::{Instruction, InstructionList},
         modules::{ImportSource, ModuleId},
     },
-    gc::{self, CollectGuard, GcEnv, GcEnvGuard, GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
+    gc::{CollectGuard, GcEnv, GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
 };
 
 struct Inner {
@@ -29,84 +29,16 @@ struct Inner {
     eval_context_contents: RefCell<HashMap<*const (), EvalContextContents>>,
 }
 
-impl GcTraceable for Inner {
-    fn trace<V>(&self, visitor: &mut V)
-    where
-        V: GcRefVisitor,
-    {
+impl Inner {
+    pub fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
         let loaded_modules = self.loaded_modules.borrow();
-        for module in loaded_modules.values() {
-            module.trace(visitor);
-        }
-        for contents in self.top_level_contents.borrow().values() {
-            contents.trace(visitor);
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct GlobalEnv(Rc<Inner>);
-
-impl GlobalEnv {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let inner_rc = Rc::new(Inner {
-            gc_context: GcEnv::new(1),
-            loaded_modules: RefCell::new(HashMap::new()),
-            top_level_contents: RefCell::new(HashMap::new()),
-            eval_context_contents: RefCell::new(HashMap::new()),
-        });
-        GlobalEnv(inner_rc)
-    }
-
-    pub fn gc_borrow(&self) -> GcEnvGuard<'_> {
-        self.0.gc_context.borrow()
-    }
-
-    pub fn gc_lock_collection(&self) -> CollectGuard {
-        gc::lock_collection()
-    }
-
-    pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>
-    where
-        T: GcTraceable + 'static,
-    {
-        gc::create_pinned_ref(value)
-    }
-
-    pub fn create_ref<T>(&self, value: T) -> GcRef<T>
-    where
-        T: GcTraceable + 'static,
-    {
-        gc::create_ref(value)
-    }
-
-    /// Loads a module into this global context.
-    ///
-    /// This does not initialize the module state, and has to be done at a
-    /// later pass.
-    pub fn load_module(
-        &self,
-        module_id: ModuleId,
-        module: &binary::modules::ConstModule,
-    ) -> Result<()> {
-        self.0.gc_context.with(|| {
-            let _collect_guard = gc::lock_collection();
-            let module = Module::from_binary(self, module)?;
-            self.0.loaded_modules.borrow_mut().insert(module_id, module);
-            Ok(())
-        })
-    }
-
-    pub(crate) fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
-        let loaded_modules = self.0.loaded_modules.borrow();
         loaded_modules
             .get(import_source.module_id())
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
             .get_export(import_source.import_name())
     }
 
-    pub(crate) fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
+    pub fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
         let inst_slice = inst_list.instructions();
         let result = inst_slice
             .iter()
@@ -139,6 +71,66 @@ impl GlobalEnv {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(InstEvalList::from_inst_ptrs(result))
+    }
+}
+
+impl GcTraceable for Inner {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        let loaded_modules = self.loaded_modules.borrow();
+        for module in loaded_modules.values() {
+            module.trace(visitor);
+        }
+        for contents in self.top_level_contents.borrow().values() {
+            contents.trace(visitor);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct GlobalEnv(Rc<Inner>);
+
+impl GlobalEnv {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let inner_rc = Rc::new(Inner {
+            gc_context: GcEnv::new(1),
+            loaded_modules: RefCell::new(HashMap::new()),
+            top_level_contents: RefCell::new(HashMap::new()),
+            eval_context_contents: RefCell::new(HashMap::new()),
+        });
+        GlobalEnv(inner_rc)
+    }
+
+    pub fn lock_collect(&self) -> GlobalEnvLock {
+        GlobalEnvLock {
+            gc_guard: self.0.gc_context.lock_collect(),
+            inner: &self.0,
+        }
+    }
+
+    pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>
+    where
+        T: GcTraceable + 'static,
+    {
+        self.0.gc_context.create_pinned_ref(value)
+    }
+
+    /// Loads a module into this global context.
+    ///
+    /// This does not initialize the module state, and has to be done at a
+    /// later pass.
+    pub fn load_module(
+        &self,
+        module_id: ModuleId,
+        module: &binary::modules::ConstModule,
+    ) -> Result<()> {
+        let collect_guard = self.lock_collect();
+        let module = Module::from_binary(&collect_guard, module)?;
+        self.0.loaded_modules.borrow_mut().insert(module_id, module);
+        Ok(())
     }
 
     pub(super) fn get_init_function(&self, module_id: &ModuleId) -> Result<Option<Function>> {
@@ -193,5 +185,28 @@ impl GcTraceable for GlobalEnv {
         V: GcRefVisitor,
     {
         self.0.trace(visitor);
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct GlobalEnvLock<'a> {
+    gc_guard: CollectGuard<'a>,
+    inner: &'a Inner,
+}
+
+impl<'a> GlobalEnvLock<'a> {
+    pub fn create_ref<T>(&self, value: T) -> GcRef<T>
+    where
+        T: GcTraceable + 'static,
+    {
+        self.gc_guard.create_ref(value)
+    }
+
+    pub fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
+        self.inner.get_import(import_source)
+    }
+
+    pub fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
+        self.inner.resolve_instructions(inst_list)
     }
 }

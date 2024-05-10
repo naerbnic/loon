@@ -11,7 +11,8 @@ pub struct ListNew;
 
 impl InstEval for ListNew {
     fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let list = Value::List(ctxt.get_env().create_ref(List::new()));
+        let env_lock = ctxt.get_env().lock_collect();
+        let list = Value::List(env_lock.create_ref(List::new()));
         stack.push(list);
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }

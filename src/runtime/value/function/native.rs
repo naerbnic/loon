@@ -61,7 +61,7 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     pub fn stack(&mut self) -> StackContext {
-        StackContext::new(self.global_context, self.local_stack)
+        StackContext::new(&self.global_context.lock_collect(), self.local_stack)
     }
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {

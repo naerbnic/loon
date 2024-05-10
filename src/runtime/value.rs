@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     binary::{ConstIndex, ConstValue},
-    gc::{self, GcRef, GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable},
     pure_values::{Float, Integer},
     util::imm_string::ImmString,
 };
@@ -124,14 +124,13 @@ impl ConstLoader for ConstValue {
         &'a self,
         ctxt: &'a ConstResolutionContext,
     ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
-        assert!(gc::is_collect_locked());
         let (value, resolver) = match self {
             ConstValue::Bool(b) => (Value::Bool(*b), None),
             ConstValue::Integer(i) => (Value::Integer(i.clone()), None),
             ConstValue::Float(f) => (Value::Float(f.clone()), None),
             ConstValue::String(s) => (Value::String(s.clone()), None),
             ConstValue::List(list) => {
-                let list_value = ctxt.global_context().create_ref(List::new());
+                let list_value = ctxt.env_lock().create_ref(List::new());
                 let resolver: ResolveFunc = {
                     let list_value = list_value.clone();
                     Box::new(move |imports, vs| {
@@ -147,10 +146,10 @@ impl ConstLoader for ConstValue {
             }
             ConstValue::Function(const_func) => {
                 let (deferred, resolve_fn) = Function::new_managed_deferred(
-                    ctxt.global_context(),
+                    ctxt.env_lock(),
                     ctxt.module_globals().clone(),
                     Rc::new(
-                        ctxt.global_context()
+                        ctxt.env_lock()
                             .resolve_instructions(const_func.instructions())?,
                     ),
                 );
