@@ -249,14 +249,14 @@ impl<'a> Drop for CollectGuard<'a> {
 /// the object must be accessed through the `with` methods.
 pub struct GcRef<T>
 where
-    T: GcTraceable + ?Sized + 'static,
+    T: ?Sized + 'static,
 {
     obj: Weak<InnerType<T>>,
 }
 
 impl<T> GcRef<T>
 where
-    T: GcTraceable + ?Sized + 'static,
+    T: ?Sized + 'static,
 {
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
         obj.ref_count.increment();
@@ -275,10 +275,6 @@ where
 
     pub fn borrow(&self) -> GcRefGuard<T> {
         self.try_borrow().expect("object was deleted")
-    }
-
-    pub fn try_pin(&self) -> Option<PinnedGcRef<T>> {
-        Some(PinnedGcRef::from_rc(self.obj.upgrade()?))
     }
 
     pub fn pin(&self) -> PinnedGcRef<T> {
@@ -318,7 +314,7 @@ where
 
 impl<T> Drop for GcRef<T>
 where
-    T: GcTraceable + ?Sized + 'static,
+    T: ?Sized + 'static,
 {
     fn drop(&mut self) {
         if let Some(obj) = self.obj.upgrade() {
@@ -329,7 +325,7 @@ where
 
 pub struct GcRefGuard<'a, T>
 where
-    T: GcTraceable + ?Sized + 'static,
+    T: ?Sized + 'static,
 {
     obj: Rc<InnerType<T>>,
     _phantom: std::marker::PhantomData<&'a T>,
@@ -355,7 +351,7 @@ where
 
 impl<T> PinnedGcRef<T>
 where
-    T: GcTraceable + ?Sized + 'static,
+    T: ?Sized + 'static,
 {
     /// Private method to convert a `GcRef` into a `PinnedGcRef`.
     fn from_rc(obj: Rc<InnerType<T>>) -> Self {
@@ -369,13 +365,6 @@ where
 
     pub fn into_ref(self) -> GcRef<T> {
         self.to_ref()
-    }
-
-    pub fn borrow(&self) -> GcRefGuard<T> {
-        GcRefGuard {
-            obj: self.obj.clone(),
-            _phantom: std::marker::PhantomData,
-        }
     }
 }
 
