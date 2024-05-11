@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::gc::{GcRef, GcTraceable, PinnedGcRef};
+use crate::gc::{GcTraceable, PinnedGcRef};
 
 use super::{
     error::Result,
@@ -43,12 +43,11 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    pub fn run(&mut self, function: &GcRef<Function>, num_args: u32) -> Result<u32> {
+    pub fn run(&mut self, function: PinnedGcRef<Function>, num_args: u32) -> Result<u32> {
         {
             let env_lock = self.global_context.lock_collect();
-            let stack_frame = function
-                .borrow()
-                .make_stack_frame(&env_lock, self.parent_stack.drain_top_n(num_args)?)?;
+            let stack_frame =
+                function.make_stack_frame(&env_lock, self.parent_stack.drain_top_n(num_args)?)?;
             self.inner.call_stack.borrow_mut().push(stack_frame);
         }
         loop {

@@ -69,7 +69,7 @@ impl<'a> NativeFunctionContext<'a> {
     pub fn call(&mut self, num_args: u32) -> Result<u32> {
         let stack_top = self.local_stack.pop()?;
         let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
-        eval_context.run(stack_top.as_function()?, num_args)
+        eval_context.run(stack_top.as_function()?.pin(), num_args)
     }
 
     pub fn return_with(self, num_args: u32) -> NativeFunctionResult {
