@@ -75,7 +75,7 @@ impl TopLevelRuntime {
 
     pub fn init_module(&self, module_id: &ModuleId) -> Result<()> {
         if let Some(init_func) = self.global_context.get_init_function(module_id)? {
-            self.inner.stack.push(Value::Function(init_func));
+            self.inner.stack.push(Value::new_function(init_func));
             self.call_function(0)?;
             self.global_context.set_module_initialized(module_id)?;
         }

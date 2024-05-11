@@ -12,7 +12,7 @@ pub struct BoolNot;
 impl InstEval for BoolNot {
     fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
         let b1 = stack.pop()?.as_bool()?;
-        stack.push(Value::Bool(!b1));
+        stack.push(Value::new_bool(!b1));
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }

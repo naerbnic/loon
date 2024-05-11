@@ -92,7 +92,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_simple_values() {
+    fn build_simple_values() -> anyhow::Result<()> {
         let const_table = vec![
             ConstValue::Integer(42.into()),
             ConstValue::Float(Float::new(std::f64::consts::PI)),
@@ -108,24 +108,18 @@ mod tests {
         let resolved_values = ValueTable::from_binary(&const_table, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 3);
 
-        match resolved_values.at(0).unwrap() {
-            Value::Integer(i) => assert_eq!(*i, 42.into()),
-            _ => panic!("Expected integer value."),
-        }
+        assert_eq!(resolved_values.at(0).unwrap().as_int()?, &42.into());
+        assert_eq!(
+            resolved_values.at(1).unwrap().as_float()?,
+            &std::f64::consts::PI.into()
+        );
 
-        match resolved_values.at(1).unwrap() {
-            Value::Float(f) => assert_eq!(f.value(), std::f64::consts::PI),
-            _ => panic!("Expected float value."),
-        }
-
-        match resolved_values.at(2).unwrap() {
-            Value::String(s) => assert_eq!(s.as_str(), "hello"),
-            _ => panic!("Expected string value."),
-        }
+        assert_eq!(resolved_values.at(2).unwrap().as_str()?, &"hello".into());
+        Ok(())
     }
 
     #[test]
-    fn build_composite_value() {
+    fn build_composite_value() -> anyhow::Result<()> {
         let values = vec![
             ConstValue::Integer(42.into()),
             ConstValue::List(vec![
@@ -144,15 +138,14 @@ mod tests {
         let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);
 
-        match resolved_values.at(1).unwrap() {
-            Value::List(list) => {
-                let l = list.borrow();
-                assert_eq!(l.len(), 3);
-                for i in 0..3 {
-                    assert_eq!(l.at(i).as_int().unwrap(), &42.into())
-                }
-            }
-            _ => panic!("Expected integer value."),
+        let list = resolved_values.at(1).unwrap().as_list()?;
+
+        let l = list.borrow();
+        assert_eq!(l.len(), 3);
+        for i in 0..3 {
+            assert_eq!(l.at(i).as_int().unwrap(), &42.into())
         }
+
+        Ok(())
     }
 }

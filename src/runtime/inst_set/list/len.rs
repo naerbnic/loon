@@ -14,7 +14,7 @@ impl InstEval for ListLen {
         let list_value = stack.pop()?;
         let list = list_value.as_list()?.borrow();
         let len = list.len();
-        stack.push(Value::Integer(i64::try_from(len).unwrap().into()));
+        stack.push(Value::new_integer(i64::try_from(len).unwrap().into()));
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }

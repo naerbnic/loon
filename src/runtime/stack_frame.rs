@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     binary::{instructions::StackIndex, modules::ImportSource},
     gc::{GcRef, GcRefVisitor, GcTraceable},
-    pure_values::Integer,
+    pure_values::{Float, Integer},
     runtime::value::NativeFunctionResult,
     util::{imm_string::ImmString, sequence::Sequence},
 };
@@ -170,20 +170,20 @@ impl<'a> StackContext<'a> {
     }
 
     pub fn push_bool(&mut self, value: bool) {
-        self.stack.push(Value::Bool(value));
+        self.stack.push(Value::new_bool(value));
     }
 
     pub fn push_int(&mut self, value: impl Into<Integer>) {
-        self.stack.push(Value::Integer(value.into()));
+        self.stack.push(Value::new_integer(value.into()));
     }
 
     pub fn push_float(&mut self, value: f64) {
-        self.stack.push(Value::Float(value.into()));
+        self.stack.push(Value::new_float(value.into()));
     }
 
     pub fn push_string(&mut self, value: impl AsRef<str>) {
         self.stack
-            .push(Value::String(ImmString::from_str(value.as_ref())));
+            .push(Value::new_string(ImmString::from_str(value.as_ref())));
     }
 
     pub fn make_list(&mut self, size: usize) -> Result<()> {
@@ -194,15 +194,16 @@ impl<'a> StackContext<'a> {
         // FIXME: Which direction should the list be from the stack?
         // Current here is from first push to last.
         list.reverse();
-        self.stack
-            .push(Value::List(self.env_lock.create_ref(List::from_iter(list))));
+        self.stack.push(Value::new_list(
+            self.env_lock.create_ref(List::from_iter(list)),
+        ));
         Ok(())
     }
 
     pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
         let function = self.stack.pop()?.as_function()?.clone();
         let captured_values = self.stack.drain_top_n(num_args)?;
-        let new_value = Value::Function(function.borrow().bind_front(
+        let new_value = Value::new_function(function.borrow().bind_front(
             &self.env_lock,
             &function,
             captured_values,
@@ -215,7 +216,7 @@ impl<'a> StackContext<'a> {
     where
         F: Fn(NativeFunctionContext) -> Result<NativeFunctionResult> + 'static,
     {
-        self.stack.push(Value::Function(Function::new_native(
+        self.stack.push(Value::new_function(Function::new_native(
             &self.env_lock,
             function,
         )));
@@ -223,6 +224,10 @@ impl<'a> StackContext<'a> {
 
     pub fn get_int(&self, index: StackIndex) -> Result<Integer> {
         Ok(self.stack.get_at_index(index)?.as_int()?.clone())
+    }
+
+    pub fn get_float(&self, index: StackIndex) -> Result<Float> {
+        Ok(self.stack.get_at_index(index)?.as_float()?.clone())
     }
 
     pub fn get_bool(&self, index: StackIndex) -> Result<bool> {

@@ -31,7 +31,7 @@ impl InstEval for Compare {
             CompareOp::Gt => todo!(),
             CompareOp::Ge => todo!(),
         };
-        stack.push(Value::Bool(result));
+        stack.push(Value::new_bool(result));
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }
