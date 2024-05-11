@@ -31,7 +31,7 @@ impl GcTraceable for Closure {
         V: GcRefVisitor,
     {
         visitor.visit(&self.function);
-        for value in self.captured_values.iter() {
+        for value in &self.captured_values {
             value.trace(visitor);
         }
     }
@@ -55,9 +55,8 @@ impl Function {
 
         (base_func_value.clone(), move |value_table| {
             let base_func = base_func_value.borrow();
-            let managed_func = match &*base_func {
-                Function::Managed(managed_func) => managed_func,
-                _ => unreachable!(),
+            let Function::Managed(managed_func) = &*base_func else {
+                unreachable!()
             };
             managed_func.resolve_constants(value_table);
         })

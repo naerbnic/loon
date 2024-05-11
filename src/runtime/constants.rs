@@ -34,7 +34,7 @@ where
         resolvers.push(resolver);
     }
 
-    for resolver in resolvers.into_iter() {
+    for resolver in resolvers {
         resolver(imports, &resolved_values)?;
     }
 
@@ -47,7 +47,7 @@ pub struct ValueTable(Vec<Value>);
 impl ValueTable {
     /// Resolve a list of constant values into a new vector of runtime values.
     ///
-    /// These values are resolved into the GlobalContext, so they will participate in
+    /// These values are resolved into the [`GlobalEnv`], so they will participate in
     /// garbage collection.
     ///
     /// We allow for self-referential constants and recursive constants via creating
@@ -74,7 +74,7 @@ impl GcTraceable for ValueTable {
     where
         V: crate::gc::GcRefVisitor,
     {
-        for value in self.0.iter() {
+        for value in &self.0 {
             value.trace(visitor);
         }
     }
@@ -143,7 +143,7 @@ mod tests {
         let l = list.borrow();
         assert_eq!(l.len(), 3);
         for i in 0..3 {
-            assert_eq!(l.at(i).as_int().unwrap(), &42.into())
+            assert_eq!(l.at(i).as_int().unwrap(), &42.into());
         }
 
         Ok(())

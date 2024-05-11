@@ -58,6 +58,7 @@ impl TopLevelRuntime {
         }
     }
 
+    #[must_use]
     pub fn stack(&self) -> Stack {
         Stack {
             stack_context: StackContext::new(
@@ -73,7 +74,7 @@ impl TopLevelRuntime {
             self.inner.stack.pop(&lock)?.as_function()?.pin()
         };
         let mut eval_context = EvalContext::new(&self.global_context, &self.inner.stack);
-        eval_context.run(function, num_args)
+        eval_context.run(&function, num_args)
     }
 
     pub fn init_module(&self, module_id: &ModuleId) -> Result<()> {

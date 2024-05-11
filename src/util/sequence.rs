@@ -32,6 +32,6 @@ where
     where
         C: Extend<T>,
     {
-        target.extend(self.0)
+        target.extend(self.0);
     }
 }

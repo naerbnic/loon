@@ -7,6 +7,7 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    #[must_use]
     pub fn new() -> Self {
         Runtime {
             global_env: GlobalEnv::new(),
@@ -17,6 +18,7 @@ impl Runtime {
         self.global_env.load_module(module_id, module)
     }
 
+    #[must_use]
     pub fn make_top_level(&self) -> TopLevelRuntime {
         TopLevelRuntime::new(self.global_env.clone())
     }

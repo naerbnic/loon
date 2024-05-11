@@ -124,7 +124,7 @@ impl LocalStack {
     }
 
     pub fn len(&self) -> u32 {
-        self.stack.borrow().len() as u32
+        u32::try_from(self.stack.borrow().len()).unwrap()
     }
 }
 

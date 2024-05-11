@@ -26,7 +26,7 @@ impl GcTraceable for ModuleGlobalsInner {
     where
         V: crate::gc::GcRefVisitor,
     {
-        for value in self.values.iter() {
+        for value in &self.values {
             if let Some(value) = &*value.borrow() {
                 value.trace(visitor);
             }

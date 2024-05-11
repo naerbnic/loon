@@ -100,7 +100,7 @@ impl InstEvalList {
     }
 
     pub fn inst_at(&self, index: usize) -> Option<&dyn InstEval> {
-        self.0.get(index).map(|e| e.to_eval())
+        self.0.get(index).map(InstPtr::to_eval)
     }
 
     pub fn len(&self) -> usize {

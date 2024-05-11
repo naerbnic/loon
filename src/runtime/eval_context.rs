@@ -43,7 +43,7 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    pub fn run(&mut self, function: PinnedGcRef<Function>, num_args: u32) -> Result<u32> {
+    pub fn run(&mut self, function: &PinnedGcRef<Function>, num_args: u32) -> Result<u32> {
         {
             let env_lock = self.global_context.lock_collect();
             let stack_frame =
@@ -60,15 +60,12 @@ impl<'a> EvalContext<'a> {
                         .borrow_mut()
                         .pop()
                         .expect("Call stack is empty.");
-                    match self.inner.call_stack.borrow().last() {
-                        Some(frame) => {
-                            frame.push_sequence(prev_frame.drain_top_n(num_returns)?);
-                        }
-                        None => {
-                            self.parent_stack
-                                .push_sequence(prev_frame.drain_top_n(num_returns)?);
-                            return Ok(num_returns);
-                        }
+                    if let Some(frame) = self.inner.call_stack.borrow().last() {
+                        frame.push_sequence(prev_frame.drain_top_n(num_returns)?);
+                    } else {
+                        self.parent_stack
+                            .push_sequence(prev_frame.drain_top_n(num_returns)?);
+                        return Ok(num_returns);
                     }
                 }
                 FrameChange::Call(call) => {

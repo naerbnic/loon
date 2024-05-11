@@ -14,7 +14,7 @@ impl InstEval for ReturnDynamic {
         let num_args = stack.pop(&lock)?.as_compact_integer()?;
         Ok(InstructionResult::Return(u32::try_from(num_args).map_err(
             |e| {
-                RuntimeError::new_operation_precondition_error(format!("Conversion failure: {}", e))
+                RuntimeError::new_operation_precondition_error(format!("Conversion failure: {e}"))
             },
         )?))
     }

@@ -84,7 +84,7 @@ impl Ord for ImmBytes {
 
 impl std::hash::Hash for ImmBytes {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_bytes().hash(state)
+        self.as_bytes().hash(state);
     }
 }
 
@@ -183,19 +183,20 @@ impl RawData {
         // alignment includes it.
         unsafe {
             std::ptr::write(
-                data_ptr as *mut StringHeader,
+                #[allow(clippy::cast_ptr_alignment)]
+                data_ptr.cast::<StringHeader>(),
                 StringHeader {
                     ref_count: AtomicUsize::new(0),
                     len: data.len(),
                 },
-            )
+            );
         };
 
         // Safety: The array was allocated with the layout and provided offset,
         // and the uninitialized data is overlaid with MaybeUninit.
         let buffer: &mut [MaybeUninit<u8>] = unsafe {
             std::slice::from_raw_parts_mut(
-                (data_ptr as *mut MaybeUninit<u8>).add(offset),
+                (data_ptr.cast::<MaybeUninit<u8>>()).add(offset),
                 data.len(),
             )
         };
@@ -208,7 +209,10 @@ impl RawData {
 
     pub fn header(&self) -> &StringHeader {
         // Safety: The header is at the start of the allocation.
-        unsafe { &*(self.0 as *const StringHeader) }
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &*(self.0.cast::<StringHeader>())
+        }
     }
 
     pub fn data(&self) -> &[u8] {
@@ -222,7 +226,7 @@ impl RawData {
 
     pub unsafe fn destroy(&self) {
         let len = self.header().len;
-        unsafe { std::alloc::dealloc(self.0 as *mut u8, make_data_layout(len).0) };
+        unsafe { std::alloc::dealloc(self.0.cast_mut(), make_data_layout(len).0) };
     }
 }
 

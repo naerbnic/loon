@@ -14,6 +14,7 @@ enum IntegerInner {
 pub struct Integer(IntegerInner);
 
 impl Integer {
+    #[must_use]
     pub fn to_compact_integer(&self) -> Option<i64> {
         match &self.0 {
             IntegerInner::Compact(i) => Some(*i),
@@ -32,16 +33,18 @@ impl Integer {
         }
     }
 
+    #[must_use]
     pub fn add_owned(self, other: Self) -> Self {
         match (self.0, other.0) {
-            (IntegerInner::Compact(i1), IntegerInner::Compact(i2)) => match i1.checked_add(i2) {
-                Some(i) => Integer(IntegerInner::Compact(i)),
-                None => {
+            (IntegerInner::Compact(i1), IntegerInner::Compact(i2)) => {
+                if let Some(i) = i1.checked_add(i2) {
+                    Integer(IntegerInner::Compact(i))
+                } else {
                     let mut sum = num_bigint::BigInt::from(i1);
                     sum += i2;
                     Integer(IntegerInner::Big(Rc::new(sum)))
                 }
-            },
+            }
             (IntegerInner::Big(mut i1), IntegerInner::Big(mut i2)) => {
                 {
                     // Try to mutate either of the integers, if they're the only
@@ -108,14 +111,17 @@ impl From<num_bigint::BigInt> for Integer {
 pub struct Float(f64);
 
 impl Float {
+    #[must_use]
     pub fn new(value: f64) -> Self {
         Float(value)
     }
 
+    #[must_use]
     pub fn value(&self) -> f64 {
         self.0
     }
 
+    #[must_use]
     pub fn add_owned(self, other: Self) -> Self {
         Float(self.0 + other.0)
     }
