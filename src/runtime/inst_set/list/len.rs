@@ -10,8 +10,9 @@ use crate::runtime::{
 pub struct ListLen;
 
 impl InstEval for ListLen {
-    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let list_value = stack.pop()?;
+    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
+        let lock = ctxt.get_env().lock_collect();
+        let list_value = stack.pop(&lock)?;
         let list = list_value.as_list()?.borrow();
         let len = list.len();
         stack.push(Value::new_integer(i64::try_from(len).unwrap().into()));

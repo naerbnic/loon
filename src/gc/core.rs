@@ -46,7 +46,6 @@ impl PtrKey {
 trait ObjectInfo {
     fn is_pinned(&self) -> bool;
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey));
-    fn destroy(self: Box<Self>);
 }
 
 struct PtrVisitor<'a>(&'a mut dyn FnMut(PtrKey));
@@ -83,10 +82,6 @@ where
 
     fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
         (*self.0).as_ref().trace(&mut PtrVisitor(ptr_visitor));
-    }
-
-    fn destroy(self: Box<Self>) {
-        drop(self.0);
     }
 }
 

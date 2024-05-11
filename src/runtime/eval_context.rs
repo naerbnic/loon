@@ -76,7 +76,7 @@ impl<'a> EvalContext<'a> {
                     let args = frame.drain_top_n(call.num_args)?;
                     {
                         let env_lock = self.global_context.lock_collect();
-                        let stack_frame = function.borrow().make_stack_frame(&env_lock, args)?;
+                        let stack_frame = function.make_stack_frame(&env_lock, args)?;
                         self.inner.call_stack.borrow_mut().push(stack_frame);
                     }
                 }
@@ -85,7 +85,7 @@ impl<'a> EvalContext<'a> {
                     let args = frame.drain_top_n(call.num_args)?;
                     {
                         let env_lock = self.global_context.lock_collect();
-                        let stack_frame = function.borrow().make_stack_frame(&env_lock, args)?;
+                        let stack_frame = function.make_stack_frame(&env_lock, args)?;
                         let mut call_stack = self.inner.call_stack.borrow_mut();
                         call_stack.pop();
                         call_stack.push(stack_frame);

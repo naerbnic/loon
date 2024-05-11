@@ -19,9 +19,10 @@ impl Compare {
 }
 
 impl InstEval for Compare {
-    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let right = stack.pop()?;
-        let left = stack.pop()?;
+    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
+        let lock = ctxt.get_env().lock_collect();
+        let right = stack.pop(&lock)?;
+        let left = stack.pop(&lock)?;
         let result = match self.0 {
             CompareOp::RefEq => left.ref_eq(&right),
             CompareOp::Eq => todo!(),

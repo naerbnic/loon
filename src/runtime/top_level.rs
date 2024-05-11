@@ -68,7 +68,10 @@ impl TopLevelRuntime {
     }
 
     pub fn call_function(&self, num_args: u32) -> Result<u32> {
-        let function = self.inner.stack.pop()?.as_function()?.pin();
+        let function = {
+            let lock = self.global_context.lock_collect();
+            self.inner.stack.pop(&lock)?.as_function()?.pin()
+        };
         let mut eval_context = EvalContext::new(&self.global_context, &self.inner.stack);
         eval_context.run(function, num_args)
     }

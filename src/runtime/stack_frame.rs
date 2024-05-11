@@ -75,11 +75,20 @@ impl LocalStack {
         self.stack.borrow_mut().push(value);
     }
 
-    pub fn pop(&self) -> Result<Value> {
+    pub fn pop(&self, _env_lock: &GlobalEnvLock) -> Result<Value> {
         self.stack
             .borrow_mut()
             .pop()
             .ok_or_else(|| RuntimeError::new_operation_precondition_error("Local stack is empty."))
+    }
+
+    pub fn pop_n(&self, n: usize) -> Result<()> {
+        let mut stack = self.stack.borrow_mut();
+        let trunc_len = stack.len().checked_sub(n).ok_or_else(|| {
+            RuntimeError::new_operation_precondition_error("Local stack is too small.")
+        })?;
+        stack.truncate(trunc_len);
+        Ok(())
     }
 
     pub fn get_at_index(&self, index: StackIndex) -> Result<Value> {
@@ -189,7 +198,7 @@ impl<'a> StackContext<'a> {
     pub fn make_list(&mut self, size: usize) -> Result<()> {
         let mut list = Vec::with_capacity(size);
         for _ in 0..size {
-            list.push(self.stack.pop()?);
+            list.push(self.stack.pop(&self.env_lock)?);
         }
         // FIXME: Which direction should the list be from the stack?
         // Current here is from first push to last.
@@ -201,7 +210,7 @@ impl<'a> StackContext<'a> {
     }
 
     pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
-        let function = self.stack.pop()?.as_function()?.clone();
+        let function = self.stack.pop(&self.env_lock)?.as_function()?.clone();
         let captured_values = self.stack.drain_top_n(num_args)?;
         let new_value = Value::new_function(function.borrow().bind_front(
             &self.env_lock,
@@ -242,10 +251,7 @@ impl<'a> StackContext<'a> {
     }
 
     pub fn pop_n(&mut self, n: usize) -> Result<()> {
-        for _ in 0..n {
-            self.stack.pop()?;
-        }
-        Ok(())
+        self.stack.pop_n(n)
     }
 }
 
@@ -267,18 +273,20 @@ impl ManagedFrameState {
             }
             InstructionResult::Return(num_values) => Some(FrameChange::Return(num_values)),
             InstructionResult::Call(func_call) => {
-                let function = func_call.function().clone();
                 inst_state.update_pc(func_call.return_target())?;
                 let call = CallStepResult {
-                    function,
+                    function: func_call.function().clone(),
                     num_args: func_call.num_args(),
                 };
                 Some(FrameChange::Call(call))
             }
-            InstructionResult::TailCall(func_call) => Some(FrameChange::TailCall(CallStepResult {
-                function: func_call.function().clone(),
-                num_args: func_call.num_args(),
-            })),
+            InstructionResult::TailCall(func_call) => {
+                let _lock = ctxt.lock_collect();
+                Some(FrameChange::TailCall(CallStepResult {
+                    function: func_call.function().clone(),
+                    num_args: func_call.num_args(),
+                }))
+            }
         };
         Ok(result)
     }
@@ -314,10 +322,10 @@ struct NativeFrameState {
 impl NativeFrameState {
     pub fn run_to_frame_change(
         &self,
-        ctxt: &GlobalEnv,
+        env: &GlobalEnv,
         local_stack: &LocalStack,
     ) -> Result<FrameChange> {
-        let ctxt = NativeFunctionContext::new(ctxt, local_stack);
+        let ctxt = NativeFunctionContext::new(env, local_stack);
         match self.native_func.borrow().call(ctxt)?.0 {
             NativeFunctionResultInner::ReturnValue(num_values) => {
                 Ok(FrameChange::Return(num_values))

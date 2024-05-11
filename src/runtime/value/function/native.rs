@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use crate::{
-    gc::{GcRef, GcTraceable},
+    gc::{GcTraceable, PinnedGcRef},
     runtime::{
         error::Result,
         eval_context::EvalContext,
@@ -17,18 +17,18 @@ use crate::{
 use super::Function;
 
 pub(crate) struct TailCall {
-    function: GcRef<Function>,
+    function: PinnedGcRef<Function>,
     num_args: u32,
 }
 
 pub(crate) struct CallWithContinuation {
-    function: GcRef<Function>,
+    function: PinnedGcRef<Function>,
     num_args: u32,
     continuation: NativeFunctionPtr,
 }
 
 impl CallWithContinuation {
-    pub fn function(&self) -> &GcRef<Function> {
+    pub fn function(&self) -> &PinnedGcRef<Function> {
         &self.function
     }
 
@@ -67,9 +67,12 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {
-        let stack_top = self.local_stack.pop()?;
+        let function = {
+            let lock = self.global_context.lock_collect();
+            self.local_stack.pop(&lock)?.as_function()?.pin()
+        };
         let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
-        eval_context.run(stack_top.as_function()?.pin(), num_args)
+        eval_context.run(function, num_args)
     }
 
     pub fn return_with(self, num_args: u32) -> NativeFunctionResult {
@@ -77,7 +80,10 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     pub fn tail_call(self, num_args: u32) -> Result<NativeFunctionResult> {
-        let function = self.local_stack.pop()?.as_function()?.clone();
+        let function = {
+            let lock = self.global_context.lock_collect();
+            self.local_stack.pop(&lock)?.as_function()?.pin()
+        };
         Ok(NativeFunctionResult(NativeFunctionResultInner::TailCall(
             TailCall { function, num_args },
         )))
@@ -88,7 +94,10 @@ impl<'a> NativeFunctionContext<'a> {
         num_args: u32,
         continuation: NativeFunctionPtr,
     ) -> Result<NativeFunctionResult> {
-        let function = self.local_stack.pop()?.as_function()?.clone();
+        let function = {
+            let lock = self.global_context.lock_collect();
+            self.local_stack.pop(&lock)?.as_function()?.pin()
+        };
         Ok(NativeFunctionResult(
             NativeFunctionResultInner::CallWithContinuation(CallWithContinuation {
                 function,

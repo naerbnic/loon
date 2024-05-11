@@ -16,9 +16,7 @@ impl Pop {
 
 impl InstEval for Pop {
     fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        for _ in 0..self.0 {
-            stack.pop()?;
-        }
+        stack.pop_n(self.0 as usize)?;
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }

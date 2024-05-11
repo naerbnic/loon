@@ -9,9 +9,10 @@ use crate::runtime::{
 pub struct Add;
 
 impl InstEval for Add {
-    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let a = stack.pop()?;
-        let b = stack.pop()?;
+    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
+        let lock = ctxt.get_env().lock_collect();
+        let a = stack.pop(&lock)?;
+        let b = stack.pop(&lock)?;
         // Right now, only implement integer addition.
         let result = a.add_owned(b)?;
         stack.push(result);
