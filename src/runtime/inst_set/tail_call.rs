@@ -22,7 +22,7 @@ impl InstEval for TailCall {
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
         let func = stack.pop()?.as_function()?.clone();
         Ok(InstructionResult::TailCall(FunctionCallResult::new(
-            func.clone(),
+            func,
             self.0,
             InstructionTarget::Step,
         )))

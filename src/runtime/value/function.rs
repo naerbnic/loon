@@ -20,46 +20,8 @@ use self::native::NativeFunctionPtr;
 pub mod managed;
 pub mod native;
 
-pub enum BaseFunction {
-    Managed(ManagedFunction),
-    Native(NativeFunctionPtr),
-}
-
-impl BaseFunction {
-    pub fn make_stack_frame(
-        &self,
-        args: impl Sequence<Value>,
-        local_stack: LocalStack,
-    ) -> Result<StackFrame> {
-        local_stack.push_sequence(args);
-        match self {
-            BaseFunction::Managed(managed_func) => Ok(StackFrame::new_managed(
-                managed_func.inst_list().clone(),
-                managed_func.constants().clone(),
-                managed_func.globals().clone(),
-                local_stack,
-            )),
-            BaseFunction::Native(native_func) => {
-                Ok(StackFrame::new_native(native_func.clone(), local_stack))
-            }
-        }
-    }
-}
-
-impl GcTraceable for BaseFunction {
-    fn trace<V>(&self, visitor: &mut V)
-    where
-        V: GcRefVisitor,
-    {
-        match self {
-            BaseFunction::Managed(managed_func) => managed_func.trace(visitor),
-            BaseFunction::Native(_) => {}
-        }
-    }
-}
-
 pub struct Closure {
-    function: GcRef<BaseFunction>,
+    function: GcRef<Function>,
     captured_values: Vec<Value>,
 }
 
@@ -75,10 +37,10 @@ impl GcTraceable for Closure {
     }
 }
 
-#[derive(Clone)]
 pub(crate) enum Function {
-    Base(GcRef<BaseFunction>),
-    Closure(GcRef<Closure>),
+    Managed(ManagedFunction),
+    Native(NativeFunctionPtr),
+    Closure(Closure),
 }
 
 impl Function {
@@ -86,39 +48,34 @@ impl Function {
         global_env: &GlobalEnvLock,
         global: ModuleGlobals,
         inst_list: Rc<InstEvalList>,
-    ) -> (Self, impl FnOnce(ValueTable)) {
-        let base_func_value = global_env.create_ref(BaseFunction::Managed(
+    ) -> (GcRef<Self>, impl FnOnce(ValueTable)) {
+        let base_func_value = global_env.create_ref(Function::Managed(
             ManagedFunction::new_deferred(global, inst_list),
         ));
 
-        (
-            Function::Base(base_func_value.clone()),
-            move |value_table| {
-                let base_func = base_func_value.borrow();
-                let managed_func = match &*base_func {
-                    BaseFunction::Managed(managed_func) => managed_func,
-                    _ => unreachable!(),
-                };
-                managed_func.resolve_constants(value_table);
-            },
-        )
+        (base_func_value.clone(), move |value_table| {
+            let base_func = base_func_value.borrow();
+            let managed_func = match &*base_func {
+                Function::Managed(managed_func) => managed_func,
+                _ => unreachable!(),
+            };
+            managed_func.resolve_constants(value_table);
+        })
     }
 
-    pub fn new_native<T>(global_env: &GlobalEnvLock, native_func: T) -> Self
+    pub fn new_native<T>(global_env: &GlobalEnvLock, native_func: T) -> GcRef<Self>
     where
         T: native::NativeFunction + 'static,
     {
-        Function::Base(
-            global_env.create_ref(BaseFunction::Native(NativeFunctionPtr::new(native_func))),
-        )
+        global_env.create_ref(Function::Native(NativeFunctionPtr::new(native_func)))
     }
 
     pub fn new_closure(
         global_env: &GlobalEnvLock,
-        function: GcRef<BaseFunction>,
+        function: GcRef<Function>,
         captured_values: Vec<Value>,
-    ) -> Self {
-        Function::Closure(global_env.create_ref(Closure {
+    ) -> GcRef<Self> {
+        global_env.create_ref(Function::Closure(Closure {
             function,
             captured_values,
         }))
@@ -127,14 +84,14 @@ impl Function {
     pub fn bind_front(
         &self,
         global_env: &GlobalEnvLock,
+        self_ref: &GcRef<Function>,
         captured_values: impl Sequence<Value>,
-    ) -> Self {
+    ) -> GcRef<Self> {
         match self {
-            Function::Base(base) => {
-                Function::new_closure(global_env, base.clone(), captured_values.collect())
+            Function::Managed(_) | Function::Native(_) => {
+                Function::new_closure(global_env, self_ref.clone(), captured_values.collect())
             }
             Function::Closure(closure) => {
-                let closure = closure.borrow();
                 let mut new_captured_values = closure.captured_values.clone();
                 captured_values.extend_into(&mut new_captured_values);
                 Function::new_closure(global_env, closure.function.clone(), new_captured_values)
@@ -152,25 +109,17 @@ impl Function {
         local_stack: LocalStack,
     ) -> Result<StackFrame> {
         match self {
-            Function::Base(base) => base.borrow().make_stack_frame(args, local_stack),
+            Function::Managed(managed) => managed.make_stack_frame(args, local_stack),
+            Function::Native(native) => native.make_stack_frame(args, local_stack),
             Function::Closure(closure) => {
-                let closure = closure.borrow();
                 local_stack.push_sequence(wrap_iter(closure.captured_values.iter().cloned()));
                 let stack_frame = closure
                     .function
                     .try_borrow()
                     .ok_or_else(|| RuntimeError::new_internal_error("Function is not available."))?
-                    .make_stack_frame(args, local_stack)?;
+                    .make_stack_frame_inner(args, local_stack)?;
                 Ok(stack_frame)
             }
-        }
-    }
-
-    pub fn ref_eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Function::Base(lhs), Function::Base(rhs)) => GcRef::ref_eq(lhs, rhs),
-            (Function::Closure(lhs), Function::Closure(rhs)) => GcRef::ref_eq(lhs, rhs),
-            _ => false,
         }
     }
 }
@@ -181,8 +130,9 @@ impl GcTraceable for Function {
         V: GcRefVisitor,
     {
         match self {
-            Function::Base(base) => visitor.visit(base),
-            Function::Closure(closure) => visitor.visit(closure),
+            Function::Managed(managed) => managed.trace(visitor),
+            Function::Native(native) => native.trace(visitor),
+            Function::Closure(closure) => closure.trace(visitor),
         }
     }
 }

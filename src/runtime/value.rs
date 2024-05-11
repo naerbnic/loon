@@ -30,7 +30,7 @@ pub(crate) enum Value {
     Bool(bool),
     String(ImmString),
     List(GcRef<List>),
-    Function(Function),
+    Function(GcRef<Function>),
 }
 
 impl Value {
@@ -57,7 +57,7 @@ impl Value {
         }
     }
 
-    pub fn as_function(&self) -> Result<&Function, RuntimeError> {
+    pub fn as_function(&self) -> Result<&GcRef<Function>, RuntimeError> {
         match self {
             Value::Function(f) => Ok(f),
             _ => Err(RuntimeError::new_type_error("Value is not a function.")),
@@ -87,7 +87,7 @@ impl Value {
             (Value::Float(f1), Value::Float(f2)) => f1 == f2,
             (Value::String(s1), Value::String(s2)) => s1 == s2,
             (Value::List(l1), Value::List(l2)) => GcRef::ref_eq(l1, l2),
-            (Value::Function(f1), Value::Function(f2)) => Function::ref_eq(f1, f2),
+            (Value::Function(f1), Value::Function(f2)) => GcRef::ref_eq(f1, f2),
             _ => false,
         }
     }

@@ -3,30 +3,32 @@
 use std::rc::Rc;
 
 use crate::{
-    gc::GcTraceable,
+    gc::{GcRef, GcTraceable},
     runtime::{
         error::Result,
         eval_context::EvalContext,
         global_env::GlobalEnv,
-        stack_frame::{LocalStack, StackContext},
+        stack_frame::{LocalStack, StackContext, StackFrame},
+        value::Value,
     },
+    util::sequence::Sequence,
 };
 
 use super::Function;
 
 pub(crate) struct TailCall {
-    function: Function,
+    function: GcRef<Function>,
     num_args: u32,
 }
 
 pub(crate) struct CallWithContinuation {
-    function: Function,
+    function: GcRef<Function>,
     num_args: u32,
     continuation: NativeFunctionPtr,
 }
 
 impl CallWithContinuation {
-    pub fn function(&self) -> &Function {
+    pub fn function(&self) -> &GcRef<Function> {
         &self.function
     }
 
@@ -65,9 +67,9 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {
-        let function = self.local_stack.pop()?.as_function()?.clone();
+        let stack_top = self.local_stack.pop()?;
         let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
-        eval_context.run(function, num_args)
+        eval_context.run(stack_top.as_function()?, num_args)
     }
 
     pub fn return_with(self, num_args: u32) -> NativeFunctionResult {
@@ -123,6 +125,15 @@ impl NativeFunctionPtr {
 
     pub fn call(&self, ctxt: NativeFunctionContext) -> Result<NativeFunctionResult> {
         self.0.call(ctxt)
+    }
+
+    pub(crate) fn make_stack_frame(
+        &self,
+        args: impl Sequence<Value>,
+        local_stack: LocalStack,
+    ) -> Result<StackFrame> {
+        local_stack.push_sequence(args);
+        Ok(StackFrame::new_native(self.clone(), local_stack))
     }
 }
 

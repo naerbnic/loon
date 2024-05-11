@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::gc::{GcRefVisitor, GcTraceable};
+use crate::gc::{GcRef, GcRefVisitor, GcTraceable};
 
 use super::{
     context::InstEvalContext, error::RuntimeError, stack_frame::LocalStack, value::Function,
@@ -13,13 +13,13 @@ pub enum InstructionTarget {
 }
 
 pub struct FunctionCallResult {
-    function: Function,
+    function: GcRef<Function>,
     num_args: u32,
     return_target: InstructionTarget,
 }
 
 impl FunctionCallResult {
-    pub fn new(function: Function, num_args: u32, return_target: InstructionTarget) -> Self {
+    pub fn new(function: GcRef<Function>, num_args: u32, return_target: InstructionTarget) -> Self {
         FunctionCallResult {
             function,
             num_args,
@@ -27,7 +27,7 @@ impl FunctionCallResult {
         }
     }
 
-    pub fn function(&self) -> &Function {
+    pub fn function(&self) -> &GcRef<Function> {
         &self.function
     }
 
@@ -119,7 +119,7 @@ impl GcTraceable for InstEvalList {
 }
 
 pub struct CallStepResult {
-    pub function: Function,
+    pub function: GcRef<Function>,
     pub num_args: u32,
 }
 

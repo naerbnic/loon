@@ -129,7 +129,10 @@ impl GlobalEnv {
         Ok(())
     }
 
-    pub(super) fn get_init_function(&self, module_id: &ModuleId) -> Result<Option<Function>> {
+    pub(super) fn get_init_function(
+        &self,
+        module_id: &ModuleId,
+    ) -> Result<Option<GcRef<Function>>> {
         let loaded_modules = self.inner.loaded_modules.borrow();
         loaded_modules
             .get(module_id)

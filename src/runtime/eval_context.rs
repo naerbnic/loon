@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::gc::{GcTraceable, PinnedGcRef};
+use crate::gc::{GcRef, GcTraceable, PinnedGcRef};
 
 use super::{
     error::Result,
@@ -43,8 +43,10 @@ impl<'a> EvalContext<'a> {
         }
     }
 
-    pub fn run(&mut self, function: Function, num_args: u32) -> Result<u32> {
-        let stack_frame = function.make_stack_frame(self.parent_stack.drain_top_n(num_args)?)?;
+    pub fn run(&mut self, function: &GcRef<Function>, num_args: u32) -> Result<u32> {
+        let stack_frame = function
+            .borrow()
+            .make_stack_frame(self.parent_stack.drain_top_n(num_args)?)?;
         self.inner.call_stack.borrow_mut().push(stack_frame);
         loop {
             let frame = self.inner.call_stack.borrow().last().unwrap().clone();
@@ -70,13 +72,13 @@ impl<'a> EvalContext<'a> {
                 FrameChange::Call(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame = function.make_stack_frame(args)?;
+                    let stack_frame = function.borrow().make_stack_frame(args)?;
                     self.inner.call_stack.borrow_mut().push(stack_frame);
                 }
                 FrameChange::TailCall(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame = function.make_stack_frame(args)?;
+                    let stack_frame = function.borrow().make_stack_frame(args)?;
                     self.inner.call_stack.borrow_mut().pop();
                     self.inner.call_stack.borrow_mut().push(stack_frame);
                 }

@@ -124,7 +124,7 @@ impl Module {
         self.0.members.at(*index).cloned()
     }
 
-    pub fn get_init_function(&self) -> Result<Option<Function>> {
+    pub fn get_init_function(&self) -> Result<Option<GcRef<Function>>> {
         if self.0.is_initialized.get() {
             return Ok(None);
         }

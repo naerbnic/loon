@@ -4,7 +4,15 @@ use std::{cell::OnceCell, rc::Rc};
 
 use crate::{
     gc::{GcRefVisitor, GcTraceable},
-    runtime::{constants::ValueTable, instructions::InstEvalList, modules::ModuleGlobals},
+    runtime::{
+        constants::ValueTable,
+        instructions::InstEvalList,
+        modules::ModuleGlobals,
+        stack_frame::{LocalStack, StackFrame},
+        value::Value,
+        Result,
+    },
+    util::sequence::Sequence,
 };
 
 /// A managed function, representing code within the Loon runtime to evaluate.
@@ -23,8 +31,18 @@ impl ManagedFunction {
         }
     }
 
-    pub fn inst_list(&self) -> &Rc<InstEvalList> {
-        &self.inst_list
+    pub fn make_stack_frame(
+        &self,
+        args: impl Sequence<Value>,
+        local_stack: LocalStack,
+    ) -> Result<StackFrame> {
+        local_stack.push_sequence(args);
+        Ok(StackFrame::new_managed(
+            self.inst_list.clone(),
+            self.constants().clone(),
+            self.globals.clone(),
+            local_stack,
+        ))
     }
 
     pub fn constants(&self) -> &ValueTable {
@@ -34,10 +52,6 @@ impl ManagedFunction {
     pub fn resolve_constants(&self, constants: ValueTable) {
         let result = self.constants.set(constants);
         assert!(result.is_ok(), "Constants already resolved.");
-    }
-
-    pub fn globals(&self) -> &ModuleGlobals {
-        &self.globals
     }
 }
 

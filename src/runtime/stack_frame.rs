@@ -198,7 +198,11 @@ impl<'a> StackContext<'a> {
     pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
         let function = self.stack.pop()?.as_function()?.clone();
         let captured_values = self.stack.drain_top_n(num_args)?;
-        let new_value = Value::Function(function.bind_front(&self.env_lock, captured_values));
+        let new_value = Value::Function(function.borrow().bind_front(
+            &self.env_lock,
+            &function,
+            captured_values,
+        ));
         self.stack.push(new_value);
         Ok(())
     }

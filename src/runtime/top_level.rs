@@ -70,7 +70,7 @@ impl TopLevelRuntime {
     pub fn call_function(&self, num_args: u32) -> Result<u32> {
         let function = self.inner.stack.pop()?;
         let mut eval_context = EvalContext::new(&self.global_context, &self.inner.stack);
-        eval_context.run(function.as_function()?.clone(), num_args)
+        eval_context.run(function.as_function()?, num_args)
     }
 
     pub fn init_module(&self, module_id: &ModuleId) -> Result<()> {
