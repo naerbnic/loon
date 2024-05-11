@@ -7,7 +7,7 @@ use crate::{
     runtime::{
         error::Result,
         eval_context::EvalContext,
-        global_env::GlobalEnv,
+        global_env::{GlobalEnv, GlobalEnvLock},
         stack_frame::{LocalStack, StackContext, StackFrame},
         value::Value,
     },
@@ -129,11 +129,12 @@ impl NativeFunctionPtr {
 
     pub(crate) fn make_stack_frame(
         &self,
+        env_lock: &GlobalEnvLock,
         args: impl Sequence<Value>,
         local_stack: LocalStack,
     ) -> Result<StackFrame> {
         local_stack.push_sequence(args);
-        Ok(StackFrame::new_native(self.clone(), local_stack))
+        Ok(StackFrame::new_native(env_lock, self.clone(), local_stack))
     }
 }
 

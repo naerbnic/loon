@@ -44,10 +44,13 @@ impl<'a> EvalContext<'a> {
     }
 
     pub fn run(&mut self, function: &GcRef<Function>, num_args: u32) -> Result<u32> {
-        let stack_frame = function
-            .borrow()
-            .make_stack_frame(self.parent_stack.drain_top_n(num_args)?)?;
-        self.inner.call_stack.borrow_mut().push(stack_frame);
+        {
+            let env_lock = self.global_context.lock_collect();
+            let stack_frame = function
+                .borrow()
+                .make_stack_frame(&env_lock, self.parent_stack.drain_top_n(num_args)?)?;
+            self.inner.call_stack.borrow_mut().push(stack_frame);
+        }
         loop {
             let frame = self.inner.call_stack.borrow().last().unwrap().clone();
             match frame.run_to_frame_change(self.global_context)? {
@@ -72,15 +75,22 @@ impl<'a> EvalContext<'a> {
                 FrameChange::Call(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame = function.borrow().make_stack_frame(args)?;
-                    self.inner.call_stack.borrow_mut().push(stack_frame);
+                    {
+                        let env_lock = self.global_context.lock_collect();
+                        let stack_frame = function.borrow().make_stack_frame(&env_lock, args)?;
+                        self.inner.call_stack.borrow_mut().push(stack_frame);
+                    }
                 }
                 FrameChange::TailCall(call) => {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
-                    let stack_frame = function.borrow().make_stack_frame(args)?;
-                    self.inner.call_stack.borrow_mut().pop();
-                    self.inner.call_stack.borrow_mut().push(stack_frame);
+                    {
+                        let env_lock = self.global_context.lock_collect();
+                        let stack_frame = function.borrow().make_stack_frame(&env_lock, args)?;
+                        let mut call_stack = self.inner.call_stack.borrow_mut();
+                        call_stack.pop();
+                        call_stack.push(stack_frame);
+                    }
                 }
             }
         }

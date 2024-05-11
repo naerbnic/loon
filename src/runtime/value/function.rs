@@ -99,25 +99,30 @@ impl Function {
         }
     }
 
-    pub fn make_stack_frame(&self, args: impl Sequence<Value>) -> Result<StackFrame> {
-        self.make_stack_frame_inner(args, LocalStack::new())
+    pub fn make_stack_frame(
+        &self,
+        env_lock: &GlobalEnvLock,
+        args: impl Sequence<Value>,
+    ) -> Result<StackFrame> {
+        self.make_stack_frame_inner(env_lock, args, LocalStack::new())
     }
 
     fn make_stack_frame_inner(
         &self,
+        env_lock: &GlobalEnvLock,
         args: impl Sequence<Value>,
         local_stack: LocalStack,
     ) -> Result<StackFrame> {
         match self {
-            Function::Managed(managed) => managed.make_stack_frame(args, local_stack),
-            Function::Native(native) => native.make_stack_frame(args, local_stack),
+            Function::Managed(managed) => managed.make_stack_frame(env_lock, args, local_stack),
+            Function::Native(native) => native.make_stack_frame(env_lock, args, local_stack),
             Function::Closure(closure) => {
                 local_stack.push_sequence(wrap_iter(closure.captured_values.iter().cloned()));
                 let stack_frame = closure
                     .function
                     .try_borrow()
                     .ok_or_else(|| RuntimeError::new_internal_error("Function is not available."))?
-                    .make_stack_frame_inner(args, local_stack)?;
+                    .make_stack_frame_inner(env_lock, args, local_stack)?;
                 Ok(stack_frame)
             }
         }

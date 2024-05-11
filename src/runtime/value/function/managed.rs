@@ -6,6 +6,7 @@ use crate::{
     gc::{GcRefVisitor, GcTraceable},
     runtime::{
         constants::ValueTable,
+        global_env::GlobalEnvLock,
         instructions::InstEvalList,
         modules::ModuleGlobals,
         stack_frame::{LocalStack, StackFrame},
@@ -33,11 +34,14 @@ impl ManagedFunction {
 
     pub fn make_stack_frame(
         &self,
+        env_lock: &GlobalEnvLock,
         args: impl Sequence<Value>,
         local_stack: LocalStack,
     ) -> Result<StackFrame> {
         local_stack.push_sequence(args);
+        dbg!(local_stack.len());
         Ok(StackFrame::new_managed(
+            env_lock,
             self.inst_list.clone(),
             self.constants().clone(),
             self.globals.clone(),

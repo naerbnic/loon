@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     binary::{instructions::StackIndex, modules::ImportSource},
-    gc::{GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable},
     pure_values::Integer,
     runtime::value::NativeFunctionResult,
     util::{imm_string::ImmString, sequence::Sequence},
@@ -112,6 +112,10 @@ impl LocalStack {
 
     pub fn push_sequence(&self, iter: impl Sequence<Value>) {
         iter.extend_into(&mut *self.stack.borrow_mut());
+    }
+
+    pub fn len(&self) -> u32 {
+        self.stack.borrow().len() as u32
     }
 }
 
@@ -356,17 +360,28 @@ struct Inner {
     local_stack: LocalStack,
 }
 
+impl GcTraceable for Inner {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: GcRefVisitor,
+    {
+        self.frame_state.trace(visitor);
+        self.local_stack.trace(visitor);
+    }
+}
+
 #[derive(Clone)]
-pub struct StackFrame(Rc<Inner>);
+pub struct StackFrame(GcRef<Inner>);
 
 impl StackFrame {
     pub fn new_managed(
+        env_lock: &GlobalEnvLock,
         inst_list: Rc<InstEvalList>,
         local_consts: ValueTable,
         module_globals: ModuleGlobals,
         local_stack: LocalStack,
     ) -> Self {
-        StackFrame(Rc::new(Inner {
+        StackFrame(env_lock.create_ref(Inner {
             frame_state: FrameState::Managed(ManagedFrameState {
                 inst_state: RefCell::new(InstState::new(inst_list)),
                 local_consts,
@@ -376,8 +391,12 @@ impl StackFrame {
         }))
     }
 
-    pub fn new_native(native_func: NativeFunctionPtr, local_stack: LocalStack) -> Self {
-        StackFrame(Rc::new(Inner {
+    pub fn new_native(
+        env_lock: &GlobalEnvLock,
+        native_func: NativeFunctionPtr,
+        local_stack: LocalStack,
+    ) -> Self {
+        StackFrame(env_lock.create_ref(Inner {
             frame_state: FrameState::Native(NativeFrameState {
                 native_func: RefCell::new(native_func),
             }),
@@ -386,18 +405,27 @@ impl StackFrame {
     }
 
     pub fn run_to_frame_change(&self, ctxt: &GlobalEnv) -> Result<FrameChange> {
-        match &self.0.frame_state {
-            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &self.0.local_stack),
-            FrameState::Native(state) => state.run_to_frame_change(ctxt, &self.0.local_stack),
+        let inner = self.0.borrow();
+        match &inner.frame_state {
+            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &inner.local_stack),
+            FrameState::Native(state) => state.run_to_frame_change(ctxt, &inner.local_stack),
         }
     }
 
     pub fn push_sequence(&self, seq: impl Sequence<Value>) {
-        self.0.local_stack.push_sequence(seq);
+        self.0.borrow().local_stack.push_sequence(seq);
     }
 
-    pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
-        self.0.local_stack.drain_top_n(len)
+    pub fn drain_top_n(&self, len: u32) -> Result<StackFrameTop> {
+        if self.0.borrow().local_stack.len() < len {
+            return Err(RuntimeError::new_operation_precondition_error(
+                "Local stack is too small.",
+            ));
+        }
+        Ok(StackFrameTop {
+            frame: self,
+            num_values: len,
+        })
     }
 }
 
@@ -406,7 +434,39 @@ impl GcTraceable for StackFrame {
     where
         V: GcRefVisitor,
     {
-        self.0.frame_state.trace(visitor);
-        self.0.local_stack.trace(visitor);
+        self.0.trace(visitor);
+    }
+}
+
+pub struct StackFrameTop<'a> {
+    frame: &'a StackFrame,
+    num_values: u32,
+}
+
+impl<'a> Sequence<Value> for StackFrameTop<'a> {
+    fn collect<T>(self) -> T
+    where
+        T: FromIterator<Value>,
+    {
+        self.frame
+            .0
+            .borrow()
+            .local_stack
+            .drain_top_n(self.num_values)
+            .expect("Not enough elements in stack")
+            .collect()
+    }
+
+    fn extend_into<T>(self, target: &mut T)
+    where
+        T: Extend<Value>,
+    {
+        self.frame
+            .0
+            .borrow()
+            .local_stack
+            .drain_top_n(self.num_values)
+            .expect("Not enough elements in stack")
+            .extend_into(target);
     }
 }
