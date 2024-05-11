@@ -206,6 +206,10 @@ impl GcEnv {
     }
 }
 
+/// A guard on a [`GcEnv`] that ensures that no garbage collections happen
+/// during the dynamic scope of this object. Any non-pinned [`GcRef`] values
+/// that are not reachable from [`PinnedGcRef`] roots must be manipulated
+/// behind this guard.
 pub struct CollectGuard<'a>(&'a ControlPtr);
 
 impl<'a> CollectGuard<'a> {
@@ -214,6 +218,11 @@ impl<'a> CollectGuard<'a> {
         Self(control_ptr)
     }
 
+    /// Create a GcRef within this environment, wrapping the given
+    /// value. A value needs to be tracable.
+    ///
+    /// This is built through a CollectGuard in order to ensure that
+    /// the returned reference isn't immediately possible to be collected.
     pub fn create_ref<T>(&self, value: T) -> GcRef<T>
     where
         T: GcTraceable + 'static,
