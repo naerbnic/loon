@@ -75,6 +75,14 @@ impl InnerRc {
         self.new_const_cell(Some(ConstValue::Integer(int_value.into())))
     }
 
+    pub fn new_float(&self, float_value: impl Into<Float>) -> ValueRef {
+        self.new_const_cell(Some(ConstValue::Float(float_value.into())))
+    }
+
+    pub fn new_bool(&self, bool_value: bool) -> ValueRef {
+        self.new_const_cell(Some(ConstValue::Bool(bool_value)))
+    }
+
     pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> Result<ValueRef> {
         let list_const = ConstValue::List(
             iter.into_iter()
@@ -159,6 +167,14 @@ impl ModuleBuilder {
 
     pub fn new_int(&self, int_value: impl Into<Integer>) -> ValueRef {
         self.0.new_int(int_value)
+    }
+
+    pub fn new_float(&self, float_value: impl Into<Float>) -> ValueRef {
+        self.0.new_float(float_value)
+    }
+
+    pub fn new_bool(&self, bool_value: bool) -> ValueRef {
+        self.0.new_bool(bool_value)
     }
 
     pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> Result<ValueRef> {

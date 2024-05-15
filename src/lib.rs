@@ -1,5 +1,6 @@
 pub mod binary;
 mod gc;
+pub mod lat;
 pub mod pure_values;
 pub mod runtime;
 mod util;
