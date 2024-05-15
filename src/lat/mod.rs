@@ -1,10 +1,11 @@
 //! A description of a text format to describe the contents of a Loon VM program.
 
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap};
 
 use crate::binary::{
+    error::BuilderError,
     modules::{ModuleId, ModuleMemberId},
-    ConstModule, ConstValue, ModuleBuilder, ValueRef,
+    ConstModule, DeferredValue, ModuleBuilder, ValueRef,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -23,6 +24,12 @@ pub enum Error {
 
     #[error("Wrong param size")]
     WrongParamSize,
+
+    #[error(transparent)]
+    Builder(#[from] BuilderError),
+
+    #[error("Unknown reference: {0}")]
+    UnknownReference(String),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -105,7 +112,22 @@ struct ExportItem<'a> {
 
 struct ConstantItem<'a> {
     local_name: &'a str,
-    const_value: ValueRef,
+    value: ValueRef,
+    deferred_value: Cell<Option<DeferredValue>>,
+    expr: &'a lexpr::Value,
+}
+
+impl ConstantItem<'_> {
+    pub fn resolve(&self, builder: &ModuleBuilder) -> Result<()> {
+        resolve_constant_expr(
+            builder,
+            &HashMap::new(),
+            self.deferred_value
+                .take()
+                .expect("Deferred value already resolved"),
+            self.expr,
+        )
+    }
 }
 
 enum ModuleItem<'a> {
@@ -116,16 +138,18 @@ enum ModuleItem<'a> {
 
 fn parse_module(expr: &lexpr::Value) -> Result<(ModuleId, ConstModule)> {
     let (module_str_value, module_contents) = parse_cons(expr)?;
+    let builder = ModuleBuilder::new();
     let module_id = parse_module_id(parse_str(module_str_value)?)?;
     let mut items = Vec::new();
     for module_item_expr in module_contents
         .list_iter()
         .ok_or(Error::UnexpectedValueType)?
     {
-        items.push(parse_module_item(todo!(), module_item_expr)?)
+        items.push(parse_module_item(&builder, module_item_expr)?)
     }
 
-    todo!()
+    let module = builder.into_const_module()?;
+    Ok((module_id, module))
 }
 
 fn parse_module_item<'a>(
@@ -164,50 +188,74 @@ fn parse_constant_item<'a>(
     body: &'a lexpr::Value,
 ) -> Result<ConstantItem<'a>> {
     // Has the form (const <local-name-sym> <const-value>)
-    let [local_name, const_value] = parse_const_len_list(body)?;
+    let [local_name, expr] = parse_const_len_list(body)?;
+    let (value, deferred_value) = builder.new_deferred();
     Ok(ConstantItem {
         local_name: parse_symbol(local_name)?,
-        const_value: parse_constant_value(builder, const_value)?,
+        value,
+        deferred_value: Cell::new(Some(deferred_value)),
+        expr,
     })
 }
 
-fn parse_constant_value(builder: &ModuleBuilder, expr: &lexpr::Value) -> Result<ValueRef> {
+fn resolve_constant_expr(
+    builder: &ModuleBuilder,
+    references: &HashMap<&str, ValueRef>,
+    deferred: DeferredValue,
+    expr: &lexpr::Value,
+) -> Result<()> {
     if let Some(i) = expr.as_i64() {
-        Ok(builder.new_int(i))
+        deferred.resolve_int(i)?;
     } else if let Some(f) = expr.as_f64() {
-        Ok(builder.new_float(f))
+        deferred.resolve_float(f)?;
     } else if let Some(b) = expr.as_bool() {
-        Ok(builder.new_bool(b))
+        deferred.resolve_bool(b)?;
+    } else if let Some(name) = expr.as_symbol() {
+        if let Some(value) = references.get(name) {
+            todo!("Resolve value-to-value reference")
+        } else {
+            return Err(Error::UnknownReference(name.to_string()));
+        }
     } else if let Some(_cons) = expr.as_cons() {
         todo!("parse compound value")
     } else {
-        Err(Error::UnexpectedValueType)
+        return Err(Error::UnexpectedValueType);
     }
+    Ok(())
+}
+
+fn resolve_constant_compound_expr(
+    builder: &ModuleBuilder,
+    references: HashMap<&str, ValueRef>,
+    deferred: DeferredValue,
+    expr: &lexpr::Value,
+) -> Result<()> {
+    todo!()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn parse_import_module_item_works() -> anyhow::Result<()> {
-    //     let expr = lexpr::from_str(r#"(import foo "my.module" bar)"#)?;
-    //     let ModuleItem::Import(imp) = parse_module_item(&expr)? else {
-    //         return anyhow::bail!("Wrong type");
-    //     };
-    //     assert_eq!(imp.local_name, "foo");
-    //     assert_eq!(imp.module_id, ModuleId::new(["my", "module"]));
-    //     assert_eq!(imp.member_id, ModuleMemberId::new("bar"));
-    //     Ok(())
-    // }
+    #[test]
+    fn parse_import_module_item_works() -> anyhow::Result<()> {
+        let expr = lexpr::from_str(r#"(import foo "my.module" bar)"#)?;
+        let ModuleItem::Import(imp) = parse_module_item(&ModuleBuilder::new(), &expr)? else {
+            return anyhow::bail!("Wrong type");
+        };
+        assert_eq!(imp.local_name, "foo");
+        assert_eq!(imp.module_id, ModuleId::new(["my", "module"]));
+        assert_eq!(imp.member_id, ModuleMemberId::new("bar"));
+        Ok(())
+    }
 
-    // #[test]
-    // fn parse_export_module_item_works() -> anyhow::Result<()> {
-    //     let expr = lexpr::from_str(r#"(export bar)"#)?;
-    //     let ModuleItem::Export(exp) = parse_module_item(&expr)? else {
-    //         return anyhow::bail!("Wrong type");
-    //     };
-    //     assert_eq!(exp.local_name, "bar");
-    //     Ok(())
-    // }
+    #[test]
+    fn parse_export_module_item_works() -> anyhow::Result<()> {
+        let expr = lexpr::from_str(r#"(export bar)"#)?;
+        let ModuleItem::Export(exp) = parse_module_item(&ModuleBuilder::new(), &expr)? else {
+            return anyhow::bail!("Wrong type");
+        };
+        assert_eq!(exp.local_name, "bar");
+        Ok(())
+    }
 }

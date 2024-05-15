@@ -274,6 +274,10 @@ impl DeferredValue {
         self.resolve(ConstValue::Float(value.into()))
     }
 
+    pub fn resolve_bool(self, value: bool) -> Result<()> {
+        self.resolve(ConstValue::Bool(value))
+    }
+
     pub fn resolve_string(self, value: impl Into<ImmString>) -> Result<()> {
         self.resolve(ConstValue::String(value.into()))
     }
