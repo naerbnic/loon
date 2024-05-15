@@ -28,13 +28,13 @@ struct BuilderInner {
 struct InnerRc(Rc<RefCell<BuilderInner>>);
 
 impl InnerRc {
-    pub fn with_num_globals(num_globals: u32) -> Self {
+    pub fn new() -> Self {
         InnerRc(Rc::new(RefCell::new(BuilderInner {
             imports: Vec::new(),
             values: Vec::new(),
             exports: HashMap::new(),
             initializer: None,
-            num_globals,
+            num_globals: 0,
         })))
     }
 
@@ -153,12 +153,25 @@ impl InnerRc {
 pub struct ModuleBuilder(InnerRc);
 
 impl ModuleBuilder {
-    pub fn with_num_globals(num_globals: u32) -> Self {
-        ModuleBuilder(InnerRc::with_num_globals(num_globals))
+    pub fn new() -> Self {
+        ModuleBuilder(InnerRc::new())
     }
 
     pub fn add_import(&self, source: ImportSource) -> ValueRef {
         self.0.add_import(source)
+    }
+
+    pub fn new_global(&self) -> GlobalValueRef {
+        let index = {
+            let mut inner = self.0 .0.borrow_mut();
+            let index = inner.num_globals;
+            inner.num_globals += 1;
+            index
+        };
+        GlobalValueRef {
+            builder_inner: self.0.clone(),
+            index,
+        }
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
@@ -191,6 +204,12 @@ impl ModuleBuilder {
 
     pub fn into_const_module(&self) -> Result<ConstModule> {
         self.0.to_const_module()
+    }
+}
+
+impl Default for ModuleBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -290,6 +309,12 @@ impl Drop for DeferredValue {
     }
 }
 
+#[derive(Clone)]
+pub struct GlobalValueRef {
+    builder_inner: InnerRc,
+    index: u32,
+}
+
 pub struct FunctionBuilder {
     /// The value reference for the deferred function being built.
     value_ref: ValueRef,
@@ -321,10 +346,20 @@ impl FunctionBuilder {
         Ok(self)
     }
 
+    pub fn push_global(&mut self, value: &GlobalValueRef) -> &mut Self {
+        assert!(self.value_ref.builder_inner.ptr_eq(&value.builder_inner));
+        self.insts.push_global(value.index);
+        self
+    }
+
+    pub fn pop_global(&mut self, value: &GlobalValueRef) -> &mut Self {
+        assert!(self.value_ref.builder_inner.ptr_eq(&value.builder_inner));
+        self.insts.pop_global(value.index);
+        self
+    }
+
     def_build_inst_method!(add());
     def_build_inst_method!(push_copy(s: StackIndex));
-    def_build_inst_method!(push_global(index: u32));
-    def_build_inst_method!(pop_global(index: u32));
     def_build_inst_method!(pop(n: u32));
     def_build_inst_method!(bool_and());
     def_build_inst_method!(bool_or());
@@ -368,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_build_atomic_values() -> anyhow::Result<()> {
-        let value_set = ModuleBuilder::with_num_globals(0);
+        let value_set = ModuleBuilder::new();
         value_set.new_int(42);
         value_set.into_const_module()?;
         Ok(())
@@ -376,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_build_compound_value() -> anyhow::Result<()> {
-        let value_set = ModuleBuilder::with_num_globals(0);
+        let value_set = ModuleBuilder::new();
         let i1 = value_set.new_int(42);
         let i2 = value_set.new_int(1138);
         let _list = value_set.new_list(vec![i1.clone(), i2.clone()]);
@@ -386,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_build_function() -> anyhow::Result<()> {
-        let value_set = ModuleBuilder::with_num_globals(0);
+        let value_set = ModuleBuilder::new();
         let (f, mut builder) = value_set.new_function();
         builder.push_int(42).push_int(1138).add().return_(1);
         builder.build()?;

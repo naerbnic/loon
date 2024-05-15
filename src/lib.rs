@@ -21,7 +21,7 @@ mod tests {
     fn simple_complete_test() -> anyhow::Result<()> {
         let module_id = ModuleId::new(["test"]);
         let member_id = ModuleMemberId::new("test_func");
-        let module_builder = ModuleBuilder::with_num_globals(0);
+        let module_builder = ModuleBuilder::new();
         let (test_func, mut test_func_builder) = module_builder.new_function();
         test_func.export(member_id.clone())?;
         test_func_builder.add().return_(1);
