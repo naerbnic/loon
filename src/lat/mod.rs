@@ -212,7 +212,7 @@ fn resolve_constant_expr(
         deferred.resolve_bool(b)?;
     } else if let Some(name) = expr.as_symbol() {
         if let Some(value) = references.get(name) {
-            todo!("Resolve value-to-value reference")
+            deferred.resolve_other(value)?;
         } else {
             return Err(Error::UnknownReference(name.to_string()));
         }

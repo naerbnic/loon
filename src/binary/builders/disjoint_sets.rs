@@ -44,6 +44,10 @@ impl<T> DisjointSet<T> {
         Ok(())
     }
 
+    pub fn is_index_resolved(&self, index: SetIndex) -> bool {
+        self.0[index.0].is_some()
+    }
+
     pub fn find(&self, index: SetIndex) -> Option<&T> {
         let mut current = index;
         loop {

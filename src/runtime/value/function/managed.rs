@@ -39,7 +39,6 @@ impl ManagedFunction {
         local_stack: LocalStack,
     ) -> Result<StackFrame> {
         local_stack.push_sequence(args);
-        dbg!(local_stack.len());
         Ok(StackFrame::new_managed(
             env_lock,
             self.inst_list.clone(),

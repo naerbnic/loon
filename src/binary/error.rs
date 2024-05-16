@@ -16,6 +16,9 @@ pub enum BuilderError {
     #[error(transparent)]
     Validation(#[from] ValidationError),
 
+    #[error("Reference was unresolved.")]
+    UnresolvedReference,
+
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
