@@ -1,3 +1,5 @@
+mod resolver;
+
 use std::{
     cell::RefCell,
     collections::{hash_map, HashMap},
@@ -9,6 +11,8 @@ use crate::{
     util::imm_string::ImmString,
 };
 
+use self::resolver::{RefIndex, RefResolver, ValueResolver};
+
 use super::{
     const_table::{ConstFunction, ConstIndex, ConstValue},
     error::{BuilderError, Result},
@@ -18,9 +22,9 @@ use super::{
 
 struct BuilderInner {
     imports: Vec<ImportSource>,
-    values: Vec<Option<ConstValue>>,
-    exports: HashMap<ModuleMemberId, u32>,
-    initializer: Option<u32>,
+    values: ValueResolver<ConstValue>,
+    exports: HashMap<ModuleMemberId, RefIndex>,
+    initializer: Option<RefIndex>,
     num_globals: u32,
 }
 
@@ -31,7 +35,7 @@ impl InnerRc {
     pub fn new() -> Self {
         InnerRc(Rc::new(RefCell::new(BuilderInner {
             imports: Vec::new(),
-            values: Vec::new(),
+            values: ValueResolver::new(),
             exports: HashMap::new(),
             initializer: None,
             num_globals: 0,
@@ -48,54 +52,75 @@ impl InnerRc {
         inner.imports.push(source);
         ValueRef {
             builder_inner: self.clone(),
-            const_index: ConstIndex::ModuleImport(u32::try_from(index).unwrap()),
+            const_index: ValueRefIndex::Import(u32::try_from(index).unwrap()),
         }
     }
 
-    fn new_const_cell(&self, value: Option<ConstValue>) -> ValueRef {
+    fn new_ref_with_resolver<F>(&self, resolver: F) -> ValueRef
+    where
+        F: FnOnce(RefResolver<'_>) -> resolver::Result<ConstValue> + 'static,
+    {
         let index = {
             let mut inner = self.0.borrow_mut();
-            let index = inner.values.len();
-            inner.values.push(value);
+            let index = inner.values.new_value_ref();
+            inner
+                .values
+                .resolve_ref(index, resolver)
+                .expect("Value can't be resolved.");
             index
         };
         ValueRef {
             builder_inner: self.clone(),
-            const_index: ConstIndex::ModuleConst(u32::try_from(index).unwrap()),
+            const_index: ValueRefIndex::Const(index),
         }
     }
 
+    fn new_const_cell(&self, value: ConstValue) -> ValueRef {
+        self.new_ref_with_resolver(|_| Ok(value))
+    }
+
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
-        let value_ref = self.new_const_cell(None);
+        let index = {
+            let mut inner = self.0.borrow_mut();
+            inner.values.new_value_ref()
+        };
+        let value_ref = ValueRef {
+            builder_inner: self.clone(),
+            const_index: ValueRefIndex::Const(index),
+        };
         let deferred_value = DeferredValue(value_ref.clone());
         (value_ref, deferred_value)
     }
 
     pub fn new_int(&self, int_value: impl Into<Integer>) -> ValueRef {
-        self.new_const_cell(Some(ConstValue::Integer(int_value.into())))
+        self.new_const_cell(ConstValue::Integer(int_value.into()))
     }
 
     pub fn new_float(&self, float_value: impl Into<Float>) -> ValueRef {
-        self.new_const_cell(Some(ConstValue::Float(float_value.into())))
+        self.new_const_cell(ConstValue::Float(float_value.into()))
     }
 
     pub fn new_bool(&self, bool_value: bool) -> ValueRef {
-        self.new_const_cell(Some(ConstValue::Bool(bool_value)))
+        self.new_const_cell(ConstValue::Bool(bool_value))
     }
 
-    pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> Result<ValueRef> {
-        let list_const = ConstValue::List(
-            iter.into_iter()
-                .map(|v| self.find_ref_index(&v))
-                .collect::<Result<Vec<_>>>()?,
-        );
-        Ok(self.new_const_cell(Some(list_const)))
+    pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> ValueRef {
+        let indexes = iter.into_iter().map(|v| v.const_index).collect::<Vec<_>>();
+        self.new_ref_with_resolver(move |resolver| {
+            Ok(ConstValue::List(
+                indexes
+                    .into_iter()
+                    .map(|v| v.resolve_to_const(&resolver))
+                    .collect::<resolver::Result<Vec<_>>>()?,
+            ))
+        })
     }
 
     pub fn new_function(&self) -> (ValueRef, FunctionBuilder) {
-        let value_ref = self.new_const_cell(None);
+        let (value_ref, deferred) = self.new_deferred();
         let builder = FunctionBuilder {
-            value_ref: value_ref.clone(),
+            builder_inner: self.clone(),
+            deferred,
             const_indexes: Vec::new(),
             insts: InstructionListBuilder::new(),
         };
@@ -104,7 +129,7 @@ impl InnerRc {
     }
 
     pub fn new_initializer(&self) -> Result<FunctionBuilder> {
-        let value_ref = self.new_const_cell(None);
+        let (value_ref, deferred) = self.new_deferred();
         let index = value_ref
             .const_index
             .as_module_const()
@@ -116,13 +141,14 @@ impl InnerRc {
         inner.initializer = Some(index);
 
         Ok(FunctionBuilder {
-            value_ref,
+            builder_inner: self.clone(),
+            deferred,
             const_indexes: Vec::new(),
             insts: InstructionListBuilder::new(),
         })
     }
 
-    fn find_ref_index(&self, value_ref: &ValueRef) -> Result<ConstIndex> {
+    fn find_ref_index(&self, value_ref: &ValueRef) -> Result<ValueRefIndex> {
         if !self.ptr_eq(&value_ref.builder_inner) {
             return Err(BuilderError::MismatchedBuilder);
         }
@@ -130,21 +156,36 @@ impl InnerRc {
     }
 
     pub fn to_const_module(&self) -> Result<ConstModule> {
-        let mut result = Vec::new();
-        let inner = self.0.borrow();
-        for value in inner.values.iter() {
-            result.push(
-                value
-                    .as_ref()
-                    .ok_or(BuilderError::DeferredNotResolved)?
-                    .clone(),
-            );
-        }
+        let mut inner = self.0.borrow_mut();
+        let exports = inner
+            .exports
+            .iter()
+            .map(|(k, v)| {
+                Ok((
+                    k.clone(),
+                    inner
+                        .values
+                        .get_value_index(*v)
+                        .map_err(BuilderError::new_other)?
+                        .as_usize() as u32,
+                ))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+        let initializer_index = inner
+            .initializer
+            .as_ref()
+            .map(|i| inner.values.get_value_index(*i))
+            .transpose()
+            .map_err(BuilderError::new_other)?
+            .map(|i| i.as_usize() as u32);
+        let result = std::mem::take(&mut inner.values)
+            .into_values()
+            .map_err(BuilderError::new_other)?;
         Ok(ConstModule::new(
             result,
             inner.imports.clone(),
-            inner.exports.clone(),
-            inner.initializer,
+            exports,
+            initializer_index,
             inner.num_globals,
         )?)
     }
@@ -190,7 +231,7 @@ impl ModuleBuilder {
         self.0.new_bool(bool_value)
     }
 
-    pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> Result<ValueRef> {
+    pub fn new_list(&self, iter: impl IntoIterator<Item = ValueRef>) -> ValueRef {
         self.0.new_list(iter)
     }
 
@@ -213,24 +254,50 @@ impl Default for ModuleBuilder {
     }
 }
 
+#[derive(Clone, Debug)]
+enum ValueRefIndex {
+    Const(RefIndex),
+    Import(u32),
+}
+
+impl ValueRefIndex {
+    fn as_module_const(&self) -> Option<RefIndex> {
+        match self {
+            ValueRefIndex::Const(index) => Some(*index),
+            _ => None,
+        }
+    }
+
+    fn resolve_to_const(&self, resolver: &RefResolver<'_>) -> resolver::Result<ConstIndex> {
+        match self {
+            ValueRefIndex::Const(index) => Ok(ConstIndex::ModuleConst(
+                resolver.resolve_ref(*index)?.as_usize() as u32,
+            )),
+            ValueRefIndex::Import(index) => Ok(ConstIndex::ModuleImport(*index)),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ValueRef {
     builder_inner: InnerRc,
-    const_index: ConstIndex,
+    const_index: ValueRefIndex,
 }
 
 impl ValueRef {
-    fn resolve(&self, const_value: ConstValue) -> Result<()> {
+    fn resolve_fn<F>(&self, resolve_fn: F) -> Result<()>
+    where
+        F: FnOnce(RefResolver<'_>) -> resolver::Result<ConstValue> + 'static,
+    {
         let mut inner = self.builder_inner.0.borrow_mut();
         let index = self
             .const_index
             .as_module_const()
             .expect("Only module consts can be resolved.");
-        let cell = &mut inner.values[index as usize];
-        if cell.is_some() {
-            return Err(BuilderError::AlreadyExists);
-        }
-        *cell = Some(const_value);
+        inner
+            .values
+            .resolve_ref(index, resolve_fn)
+            .map_err(BuilderError::new_other)?;
         Ok(())
     }
 
@@ -258,11 +325,18 @@ impl ValueRef {
 pub struct DeferredValue(ValueRef);
 
 impl DeferredValue {
-    fn resolve(&self, const_value: ConstValue) -> Result<()> {
-        self.0.resolve(const_value)
+    fn resolve_fn<F>(&self, resolve_fn: F) -> Result<()>
+    where
+        F: FnOnce(RefResolver<'_>) -> resolver::Result<ConstValue> + 'static,
+    {
+        self.0.resolve_fn(resolve_fn)
     }
 
-    fn find_ref_index(&self, value_ref: &ValueRef) -> Result<ConstIndex> {
+    fn resolve(self, value: ConstValue) -> Result<()> {
+        self.resolve_fn(move |_| Ok(value))
+    }
+
+    fn find_ref_index(&self, value_ref: &ValueRef) -> Result<ValueRefIndex> {
         self.0.builder_inner.find_ref_index(value_ref)
     }
 
@@ -287,12 +361,20 @@ impl DeferredValue {
             .into_iter()
             .map(|v| self.find_ref_index(&v))
             .collect::<Result<Vec<_>>>()?;
-        self.resolve(ConstValue::List(values))
+        self.resolve_fn(|resolver| {
+            Ok(ConstValue::List(
+                values
+                    .into_iter()
+                    .map(|v| v.resolve_to_const(&resolver))
+                    .collect::<resolver::Result<Vec<_>>>()?,
+            ))
+        })
     }
 
     pub fn into_function_builder(self) -> FunctionBuilder {
         FunctionBuilder {
-            value_ref: self.0.clone(),
+            builder_inner: self.0.builder_inner.clone(),
+            deferred: self,
             const_indexes: Vec::new(),
             insts: InstructionListBuilder::new(),
         }
@@ -302,9 +384,9 @@ impl DeferredValue {
 impl Drop for DeferredValue {
     fn drop(&mut self) {
         match self.0.const_index {
-            ConstIndex::ModuleConst(index) => {
+            ValueRefIndex::Const(index) => {
                 let inner = self.0.builder_inner.0.borrow();
-                if inner.values[index as usize].is_none() {
+                if !inner.values.is_index_resolved(index) {
                     panic!("Deferred value not resolved.");
                 }
             }
@@ -320,9 +402,10 @@ pub struct GlobalValueRef {
 }
 
 pub struct FunctionBuilder {
+    builder_inner: InnerRc,
     /// The value reference for the deferred function being built.
-    value_ref: ValueRef,
-    const_indexes: Vec<ConstIndex>,
+    deferred: DeferredValue,
+    const_indexes: Vec<ValueRefIndex>,
     insts: InstructionListBuilder,
 }
 
@@ -337,13 +420,13 @@ macro_rules! def_build_inst_method {
 
 impl FunctionBuilder {
     pub fn push_int(&mut self, value: impl Into<Integer>) -> &mut Self {
-        let value_ref = self.value_ref.builder_inner.new_int(value);
+        let value_ref = self.builder_inner.new_int(value);
         self.push_value(&value_ref)
             .expect("Value should be resolved.")
     }
 
     pub fn push_value(&mut self, value: &ValueRef) -> Result<&mut Self> {
-        let const_index = self.value_ref.builder_inner.find_ref_index(value)?;
+        let const_index = self.builder_inner.find_ref_index(value)?;
         let function_const_index = self.const_indexes.len();
         self.const_indexes.push(const_index.clone());
         self.insts.push_const(function_const_index as u32);
@@ -351,13 +434,13 @@ impl FunctionBuilder {
     }
 
     pub fn push_global(&mut self, value: &GlobalValueRef) -> &mut Self {
-        assert!(self.value_ref.builder_inner.ptr_eq(&value.builder_inner));
+        assert!(self.builder_inner.ptr_eq(&value.builder_inner));
         self.insts.push_global(value.index);
         self
     }
 
     pub fn pop_global(&mut self, value: &GlobalValueRef) -> &mut Self {
-        assert!(self.value_ref.builder_inner.ptr_eq(&value.builder_inner));
+        assert!(self.builder_inner.ptr_eq(&value.builder_inner));
         self.insts.pop_global(value.index);
         self
     }
@@ -378,26 +461,18 @@ impl FunctionBuilder {
     def_build_inst_method!(define_branch_target(target: &str));
 
     pub fn build(mut self) -> Result<()> {
-        self.value_ref
-            .resolve(ConstValue::Function(ConstFunction::new(
-                std::mem::take(&mut self.const_indexes),
-                std::mem::take(&mut self.insts).build()?,
-            )))?;
+        let instructions = std::mem::take(&mut self.insts).build()?;
+        let const_indexes = std::mem::take(&mut self.const_indexes);
+        self.deferred.resolve_fn(|resolver| {
+            Ok(ConstValue::Function(ConstFunction::new(
+                const_indexes
+                    .into_iter()
+                    .map(|i| i.resolve_to_const(&resolver))
+                    .collect::<resolver::Result<Vec<_>>>()?,
+                instructions,
+            )))
+        })?;
         Ok(())
-    }
-}
-
-impl Drop for FunctionBuilder {
-    fn drop(&mut self) {
-        match self.value_ref.const_index {
-            ConstIndex::ModuleConst(index) => {
-                let inner = self.value_ref.builder_inner.0.borrow();
-                if inner.values[index as usize].is_none() {
-                    panic!("Deferred value not resolved.");
-                }
-            }
-            _ => panic!("Invalid const index."),
-        }
     }
 }
 

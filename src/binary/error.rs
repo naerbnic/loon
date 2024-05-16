@@ -15,6 +15,18 @@ pub enum BuilderError {
 
     #[error(transparent)]
     Validation(#[from] ValidationError),
+
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl BuilderError {
+    pub fn new_other<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        BuilderError::Other(Box::new(error))
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
