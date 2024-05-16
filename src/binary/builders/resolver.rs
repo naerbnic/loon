@@ -1,7 +1,9 @@
+use super::disjoint_sets::{DisjointSet, SetIndex};
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Conflict during resolution")]
-    ResolveConflict,
+    DisjointSet(#[from] super::disjoint_sets::Error),
 
     #[error("Unresolved Reference")]
     UnresolvedReference,
@@ -9,8 +11,9 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct RefIndex(usize);
+#[derive(Clone, Copy, Debug)]
+pub struct RefIndex(SetIndex);
+
 #[derive(Clone, Copy, Debug)]
 pub struct ValueIndex(usize);
 
@@ -20,26 +23,16 @@ impl ValueIndex {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-enum Index {
-    UnfiedWith(RefIndex),
-    Value(ValueIndex),
-}
-
 pub struct RefResolver<'a> {
-    index_layer: &'a Vec<Option<Index>>,
+    index_layer: &'a DisjointSet<ValueIndex>,
 }
 
 impl RefResolver<'_> {
     pub fn resolve_ref(&self, index: RefIndex) -> Result<ValueIndex> {
-        let mut result = index;
-        while let Some(Index::UnfiedWith(next)) = self.index_layer[result.0] {
-            result = next;
-        }
-        match self.index_layer[result.0] {
-            Some(Index::Value(value_index)) => Ok(value_index),
-            _ => Err(Error::UnresolvedReference),
-        }
+        self.index_layer
+            .find(index.0)
+            .copied()
+            .ok_or(Error::UnresolvedReference)
     }
 }
 
@@ -57,74 +50,45 @@ where
 }
 
 pub struct ValueResolver<T> {
-    index_layer: Vec<Option<Index>>,
+    index_layer: DisjointSet<ValueIndex>,
     value_layer: Vec<Box<dyn ResolveOp<T>>>,
 }
 
 impl<T> ValueResolver<T> {
     pub fn new() -> Self {
         ValueResolver {
-            index_layer: Vec::new(),
+            index_layer: DisjointSet::new(),
             value_layer: Vec::new(),
         }
     }
 
     pub fn new_value_ref(&mut self) -> RefIndex {
-        let index = RefIndex(self.index_layer.len());
-        self.index_layer.push(None);
-        index
+        RefIndex(self.index_layer.make_deferred_set())
     }
 
-    pub fn unify_refs(&mut self, a: RefIndex, b: RefIndex) -> Result<()> {
-        let resolved_a = self.resolve_index(a);
-        let resolved_b = self.resolve_index(b);
-
-        // If both values are already in the same set, we're done.
-        if resolved_a == resolved_b {
-            return Ok(());
-        }
-
-        // If one of the values is resolved, the other has to be set to a cross
-        // reference.
-        let (from, to) = if self.index_layer[resolved_a.0].is_some() {
-            (resolved_b, resolved_a)
-        } else {
-            (resolved_a, resolved_b)
-        };
-
-        if self.index_layer[from.0].is_some() {
-            return Err(Error::ResolveConflict);
-        }
-        self.index_layer[from.0] = Some(Index::UnfiedWith(to));
-        Ok(())
+    pub fn resolve_to_other_ref(&mut self, from: RefIndex, to: RefIndex) -> Result<()> {
+        Ok(self.index_layer.resolve_to_other_set(from.0, to.0)?)
     }
 
     pub fn resolve_ref<F>(&mut self, from: RefIndex, op: F) -> Result<ValueIndex>
     where
         F: FnOnce(RefResolver<'_>) -> Result<T> + 'static,
     {
-        let resolved_from = self.resolve_index(from);
-
-        if self.index_layer[resolved_from.0].is_some() {
-            return Err(Error::ResolveConflict);
-        }
-
-        let value_index = ValueIndex(self.value_layer.len());
-        self.index_layer[resolved_from.0] = Some(Index::Value(value_index));
+        let new_value_index = ValueIndex(self.value_layer.len());
+        self.index_layer.resolve_set(from.0, new_value_index)?;
         self.value_layer.push(Box::new(op));
-        Ok(value_index)
+        Ok(new_value_index)
     }
 
     pub fn get_value_index(&self, index: RefIndex) -> Result<ValueIndex> {
-        let resolved_index = self.resolve_index(index);
-        match self.index_layer[resolved_index.0] {
-            Some(Index::Value(value_index)) => Ok(value_index),
-            _ => Err(Error::ResolveConflict),
-        }
+        self.index_layer
+            .find(index.0)
+            .copied()
+            .ok_or(Error::UnresolvedReference)
     }
 
     pub fn is_index_resolved(&self, index: RefIndex) -> bool {
-        self.index_layer[index.0].is_some()
+        self.index_layer.find(index.0).is_some()
     }
 
     pub fn into_values(self) -> Result<Vec<T>> {
@@ -136,14 +100,6 @@ impl<T> ValueResolver<T> {
                 })
             })
             .collect::<Result<Vec<T>>>()
-    }
-
-    fn resolve_index(&self, index: RefIndex) -> RefIndex {
-        let mut result = index;
-        while let Some(Index::UnfiedWith(next)) = self.index_layer[result.0] {
-            result = next;
-        }
-        result
     }
 }
 

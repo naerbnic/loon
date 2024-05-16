@@ -1,3 +1,4 @@
+mod disjoint_sets;
 mod resolver;
 
 use std::{
@@ -301,6 +302,24 @@ impl ValueRef {
         Ok(())
     }
 
+    fn resolve_other(&self, other: &ValueRef) -> Result<()> {
+        assert!(Rc::ptr_eq(&self.builder_inner.0, &other.builder_inner.0));
+        let mut inner = self.builder_inner.0.borrow_mut();
+        inner
+            .values
+            .resolve_to_other_ref(
+                self.const_index
+                    .as_module_const()
+                    .expect("Only module consts can be resolved"),
+                other
+                    .const_index
+                    .as_module_const()
+                    .expect("This should be able to be a global, but not yet."),
+            )
+            .map_err(BuilderError::new_other)?;
+        Ok(())
+    }
+
     pub fn export(&self, name: ModuleMemberId) -> Result<()> {
         let mut inner = self.builder_inner.0.borrow_mut();
         let index = self
@@ -369,6 +388,10 @@ impl DeferredValue {
                     .collect::<resolver::Result<Vec<_>>>()?,
             ))
         })
+    }
+
+    pub fn resolve_other(self, value: &ValueRef) -> Result<()> {
+        self.0.resolve_other(value)
     }
 
     pub fn into_function_builder(self) -> FunctionBuilder {
