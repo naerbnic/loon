@@ -4,7 +4,7 @@ use std::{cell::Cell, collections::HashMap};
 
 use crate::binary::{
     error::BuilderError,
-    modules::{ModuleId, ModuleMemberId},
+    modules::{ImportSource, ModuleId, ModuleMemberId},
     ConstModule, DeferredValue, ModuleBuilder, ValueRef,
 };
 
@@ -58,10 +58,9 @@ fn parse_str(expr: &lexpr::Value) -> Result<&str> {
 
 fn parse_const_len_list<const L: usize>(list: &lexpr::Value) -> Result<[&lexpr::Value; L]> {
     let iter = list.list_iter().ok_or(Error::UnexpectedValueType)?;
-    Ok(iter
-        .collect::<Vec<_>>()
+    iter.collect::<Vec<_>>()
         .try_into()
-        .map_err(|_| Error::WrongParamSize)?)
+        .map_err(|_| Error::WrongParamSize)
 }
 
 fn parse_list_with_head<'a>(head: &str, expr: &'a lexpr::Value) -> Result<&'a lexpr::Value> {
@@ -102,8 +101,7 @@ fn parse_module_set(expr: &lexpr::Value) -> Result<ModuleSet> {
 
 struct ImportItem<'a> {
     local_name: &'a str,
-    module_id: ModuleId,
-    member_id: ModuleMemberId,
+    value_ref: ValueRef,
 }
 
 struct ExportItem<'a> {
@@ -118,10 +116,14 @@ struct ConstantItem<'a> {
 }
 
 impl ConstantItem<'_> {
-    pub fn resolve(&self, builder: &ModuleBuilder) -> Result<()> {
+    pub fn resolve(
+        &self,
+        builder: &ModuleBuilder,
+        references: &HashMap<&str, ValueRef>,
+    ) -> Result<()> {
         resolve_constant_expr(
             builder,
-            &HashMap::new(),
+            references,
             self.deferred_value
                 .take()
                 .expect("Deferred value already resolved"),
@@ -136,6 +138,19 @@ enum ModuleItem<'a> {
     Const(ConstantItem<'a>),
 }
 
+impl ModuleItem<'_> {
+    pub fn resolve(
+        &self,
+        builder: &ModuleBuilder,
+        references: &HashMap<&str, ValueRef>,
+    ) -> Result<()> {
+        match self {
+            ModuleItem::Const(constant) => constant.resolve(builder, references),
+            _ => Ok(()),
+        }
+    }
+}
+
 fn parse_module(expr: &lexpr::Value) -> Result<(ModuleId, ConstModule)> {
     let (module_str_value, module_contents) = parse_cons(expr)?;
     let builder = ModuleBuilder::new();
@@ -148,8 +163,36 @@ fn parse_module(expr: &lexpr::Value) -> Result<(ModuleId, ConstModule)> {
         items.push(parse_module_item(&builder, module_item_expr)?)
     }
 
+    resolve_items(&builder, &items)?;
+
     let module = builder.into_const_module()?;
     Ok((module_id, module))
+}
+
+fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<HashMap<&'a str, ValueRef>> {
+    let mut references = HashMap::new();
+    for item in items {
+        match item {
+            ModuleItem::Const(constant) => {
+                references.insert(constant.local_name, constant.value.clone());
+            }
+            ModuleItem::Import(import) => {
+                references.insert(import.local_name, import.value_ref.clone());
+            }
+            _ => {}
+        }
+    }
+    Ok(references)
+}
+
+fn resolve_items(builder: &ModuleBuilder, items: &[ModuleItem]) -> Result<()> {
+    let references = gather_item_references(items)?;
+    for item in items {
+        if let ModuleItem::Const(constant) = item {
+            constant.resolve(builder, &references)?;
+        }
+    }
+    Ok(())
 }
 
 fn parse_module_item<'a>(
@@ -158,7 +201,7 @@ fn parse_module_item<'a>(
 ) -> Result<ModuleItem<'a>> {
     let (first, rest) = parse_cons(item)?;
     let item = match parse_symbol(first)? {
-        "import" => ModuleItem::Import(parse_import_item(rest)?),
+        "import" => ModuleItem::Import(parse_import_item(builder, rest)?),
         "export" => ModuleItem::Export(parse_export_item(rest)?),
         "const" => ModuleItem::Const(parse_constant_item(builder, rest)?),
         _ => return Err(Error::UnexpectedSymbol),
@@ -166,13 +209,19 @@ fn parse_module_item<'a>(
     Ok(item)
 }
 
-fn parse_import_item(body: &lexpr::Value) -> Result<ImportItem> {
+fn parse_import_item<'a>(
+    builder: &ModuleBuilder,
+    body: &'a lexpr::Value,
+) -> Result<ImportItem<'a>> {
     // Has the form (import <name-sym> <module-id-str> <module-item-symbol>)
     let [local_name, module_id_str, member_symbol] = parse_const_len_list(body)?;
+    let module_id = parse_module_id(parse_str(module_id_str)?)?;
+    let member_id = ModuleMemberId::new(parse_symbol(member_symbol)?);
+    let import_source = ImportSource::new(module_id, member_id);
+    let value_ref = builder.add_import(import_source);
     Ok(ImportItem {
         local_name: parse_symbol(local_name)?,
-        module_id: parse_module_id(parse_str(module_id_str)?)?,
-        member_id: ModuleMemberId::new(parse_symbol(member_symbol)?),
+        value_ref,
     })
 }
 
@@ -216,8 +265,8 @@ fn resolve_constant_expr(
         } else {
             return Err(Error::UnknownReference(name.to_string()));
         }
-    } else if let Some(_cons) = expr.as_cons() {
-        todo!("parse compound value")
+    } else if let Some(cons) = expr.as_cons() {
+        resolve_constant_compound_expr(builder, references, deferred, cons)?;
     } else {
         return Err(Error::UnexpectedValueType);
     }
@@ -226,11 +275,31 @@ fn resolve_constant_expr(
 
 fn resolve_constant_compound_expr(
     builder: &ModuleBuilder,
-    references: HashMap<&str, ValueRef>,
+    references: &HashMap<&str, ValueRef>,
+    deferred: DeferredValue,
+    expr: &lexpr::Cons,
+) -> Result<()> {
+    match parse_symbol(expr.car())? {
+        "list" => resolve_list_expr(builder, references, deferred, expr.cdr())?,
+        _ => return Err(Error::UnexpectedSymbol),
+    }
+    Ok(())
+}
+
+fn resolve_list_expr(
+    builder: &ModuleBuilder,
+    references: &HashMap<&str, ValueRef>,
     deferred: DeferredValue,
     expr: &lexpr::Value,
 ) -> Result<()> {
-    todo!()
+    let mut values = Vec::new();
+    for item_expr in expr.list_iter().ok_or(Error::UnexpectedValueType)? {
+        let (item, item_deferred) = builder.new_deferred();
+        resolve_constant_expr(builder, references, item_deferred, item_expr)?;
+        values.push(item);
+    }
+    deferred.resolve_list(values)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -244,8 +313,6 @@ mod tests {
             return anyhow::bail!("Wrong type");
         };
         assert_eq!(imp.local_name, "foo");
-        assert_eq!(imp.module_id, ModuleId::new(["my", "module"]));
-        assert_eq!(imp.member_id, ModuleMemberId::new("bar"));
         Ok(())
     }
 
