@@ -2,10 +2,12 @@
 
 use std::{cell::Cell, collections::HashMap};
 
+use lexpr::parse;
+
 use crate::binary::{
     error::BuilderError,
     modules::{ImportSource, ModuleId, ModuleMemberId},
-    ConstModule, DeferredValue, ModuleBuilder, ValueRef,
+    ConstModule, DeferredValue, FunctionBuilder, ModuleBuilder, ValueRef,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -247,6 +249,16 @@ fn parse_constant_item<'a>(
     })
 }
 
+fn parse_constant_expr(
+    builder: &ModuleBuilder,
+    references: &HashMap<&str, ValueRef>,
+    expr: &lexpr::Value,
+) -> Result<ValueRef> {
+    let (value, deferred_value) = builder.new_deferred();
+    resolve_constant_expr(builder, references, deferred_value, expr)?;
+    Ok(value)
+}
+
 fn resolve_constant_expr(
     builder: &ModuleBuilder,
     references: &HashMap<&str, ValueRef>,
@@ -279,8 +291,10 @@ fn resolve_constant_compound_expr(
     deferred: DeferredValue,
     expr: &lexpr::Cons,
 ) -> Result<()> {
+    let body = expr.cdr();
     match parse_symbol(expr.car())? {
-        "list" => resolve_list_expr(builder, references, deferred, expr.cdr())?,
+        "list" => resolve_list_expr(builder, references, deferred, body)?,
+        "fn" => resolve_fn_expr(builder, references, deferred, body)?,
         _ => return Err(Error::UnexpectedSymbol),
     }
     Ok(())
@@ -299,6 +313,58 @@ fn resolve_list_expr(
         values.push(item);
     }
     deferred.resolve_list(values)?;
+    Ok(())
+}
+
+fn resolve_fn_expr(
+    builder: &ModuleBuilder,
+    references: &HashMap<&str, ValueRef>,
+    deferred: DeferredValue,
+    body: &lexpr::Value,
+) -> Result<()> {
+    let mut fn_builder = deferred.into_function_builder();
+    for inst_expr in body.list_iter().ok_or(Error::UnexpectedValueType)? {
+        apply_fn_inst(builder, &mut fn_builder, references, inst_expr)?;
+    }
+    fn_builder.build()?;
+    Ok(())
+}
+
+fn apply_fn_inst(
+    builder: &ModuleBuilder,
+    fn_builder: &mut FunctionBuilder,
+    references: &HashMap<&str, ValueRef>,
+    body: &lexpr::Value,
+) -> Result<()> {
+    match body {
+        lexpr::Value::Keyword(kw) => {
+            fn_builder.define_branch_target(kw);
+        }
+        lexpr::Value::Cons(cons) => {
+            let (head, args) = (cons.car(), cons.cdr());
+            match parse_symbol(head)? {
+                "push" => {
+                    let [value_expr] = parse_const_len_list(args)?;
+                    let value = parse_constant_expr(builder, references, value_expr)?;
+                    fn_builder.push_value(&value)?;
+                }
+                "add" => {
+                    let [] = parse_const_len_list(args)?;
+                    fn_builder.add();
+                }
+                "return" => {
+                    let [num_args] = parse_const_len_list(args)?;
+                    fn_builder.return_(num_args.as_i64().ok_or(Error::UnexpectedValueType)? as u32);
+                }
+                "return_dynamic" => {
+                    let [] = parse_const_len_list(args)?;
+                    fn_builder.return_dynamic();
+                }
+                _ => return Err(Error::UnexpectedSymbol),
+            }
+        }
+        _ => return Err(Error::UnexpectedValueType),
+    }
     Ok(())
 }
 
