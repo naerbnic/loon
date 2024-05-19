@@ -450,6 +450,8 @@ impl DeferredValue {
 
 impl Drop for DeferredValue {
     fn drop(&mut self) {
+        // FIXME: If dropped when returning an Err value, this shouldn't panic, to allow the
+        // error to be propagated.
         match self.0.const_index {
             ValueRefIndex::Const(index) => {
                 let inner = self.0.builder_inner.0.borrow();

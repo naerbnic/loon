@@ -4,7 +4,7 @@ pub enum BuilderError {
     #[error("Value already exists.")]
     AlreadyExists,
 
-    #[error("Expected a moudle const.")]
+    #[error("Expected a module const.")]
     ExpectedModuleConst,
 
     #[error("Mismatched builder.")]

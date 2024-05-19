@@ -15,7 +15,7 @@ pub enum Error {
     #[error(transparent)]
     Lexpr(#[from] lexpr::parse::Error),
 
-    #[error("Unexpected error type")]
+    #[error("Unexpected value type")]
     UnexpectedValueType,
 
     #[error("Unexpected symbol")]
@@ -98,7 +98,7 @@ fn parse_module_set(expr: &lexpr::Value) -> Result<ModuleSet> {
         let (module_id, module) = parse_module(module_expr)?;
         module_map.insert(module_id, module);
     }
-    todo!()
+    Ok(ModuleSet(module_map))
 }
 
 struct ImportItem<'a> {
@@ -271,6 +271,8 @@ fn resolve_constant_expr(
         deferred.resolve_float(f)?;
     } else if let Some(b) = expr.as_bool() {
         deferred.resolve_bool(b)?;
+    } else if let Some(s) = expr.as_str() {
+        deferred.resolve_string(s)?;
     } else if let Some(name) = expr.as_symbol() {
         if let Some(value) = references.get(name) {
             deferred.resolve_other(value)?;
@@ -389,6 +391,23 @@ mod tests {
             return anyhow::bail!("Wrong type");
         };
         assert_eq!(exp.local_name, "bar");
+        Ok(())
+    }
+
+    #[test]
+    fn parse_basic_module() -> anyhow::Result<()> {
+        let expr = lexpr::from_str(
+            r#"
+                (module-set
+                    ("my.module"
+                        (const foo 42)
+                        (const bar "baz")
+                        (export foo)
+                    )
+                )
+            "#,
+        )?;
+        let _module_set = parse_module_set(&expr)?;
         Ok(())
     }
 }
