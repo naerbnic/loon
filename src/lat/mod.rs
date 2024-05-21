@@ -359,6 +359,10 @@ fn apply_fn_inst(
                     let [target] = parse_const_len_list(args)?;
                     fn_builder.branch(target.as_keyword().ok_or(Error::UnexpectedValueType)?);
                 }
+                "pop" => {
+                    let [n_pop] = parse_const_len_list(args)?;
+                    fn_builder.pop(n_pop.as_i64().ok_or(Error::UnexpectedValueType)? as u32);
+                }
                 unknown_opcode => return Err(Error::UnexpectedSymbol(unknown_opcode.to_string())),
             }
         }

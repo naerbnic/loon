@@ -73,4 +73,37 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    #[ignore = "Not all opcodes implemented"]
+    fn simple_recursive_function_test() -> anyhow::Result<()> {
+        let module_set = super::lat::from_str(
+            r#"
+                (module-set
+                    ("test"
+                        (const fib_inner
+                            (fn 
+                                (dup)
+                                (push 1)
+                                (sub)
+                                (push fib_inner)
+                                (call 2)
+                                (swap)
+                                (dup)
+                                (push 2)
+                                (sub)
+                                (push fib_inner)
+                                (call 2)
+                                (add)))
+                        (const fib
+                            (fn 
+                                (push 0)
+                                (push 1)
+                                (push fib_inner)
+                                (call 3)))))
+            "#,
+        )?;
+        let runtime = Runtime::new();
+        Ok(())
+    }
 }
