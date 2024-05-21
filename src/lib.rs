@@ -28,6 +28,17 @@ mod tests {
         test_func_builder.build()?;
         let module = module_builder.into_const_module()?;
 
+        let _module_set = super::lat::from_str(
+            r#"
+                (module-set
+                    ("test"
+                        (const test_func
+                            (fn 
+                                (add)
+                                (return 1)))))
+            "#,
+        )?;
+
         let runtime = Runtime::new();
         runtime.load_module(module_id.clone(), &module)?;
 

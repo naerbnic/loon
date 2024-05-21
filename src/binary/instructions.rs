@@ -126,10 +126,15 @@ impl InstructionList {
     }
 }
 
+enum BranchType {
+    Conditional,
+    Unconditional,
+}
+
 pub struct InstructionListBuilder {
     branch_target_names: InternSet<ImmString>,
     branch_targets: HashMap<ImmString, BranchTarget>,
-    branch_resolutions: Vec<(u32, ImmString)>,
+    branch_resolutions: Vec<(BranchType, u32, ImmString)>,
     instructions: Vec<Option<Instruction>>,
 }
 
@@ -169,10 +174,24 @@ impl InstructionListBuilder {
     inst_builder!(return_, Return(n: u32));
     inst_builder!(return_dynamic, ReturnDynamic);
 
+    pub fn branch(&mut self, target: &str) -> &mut Self {
+        let target = self.branch_target_names.intern(target);
+        self.branch_resolutions.push((
+            BranchType::Unconditional,
+            self.instructions.len() as u32,
+            target,
+        ));
+        self.instructions.push(None);
+        self
+    }
+
     pub fn branch_if(&mut self, target: &str) -> &mut Self {
         let target = self.branch_target_names.intern(target);
-        self.branch_resolutions
-            .push((self.instructions.len() as u32, target));
+        self.branch_resolutions.push((
+            BranchType::Conditional,
+            self.instructions.len() as u32,
+            target,
+        ));
         self.instructions.push(None);
         self
     }
@@ -187,14 +206,17 @@ impl InstructionListBuilder {
 
     pub fn build(mut self) -> Result<InstructionList> {
         // Resolve branch targets.
-        for (index, target) in self.branch_resolutions {
+        for (branch_type, index, target) in self.branch_resolutions {
             let target = self
                 .branch_targets
                 .get(&target)
                 .ok_or(BuilderError::DeferredNotResolved)?;
             let inst = &mut self.instructions[index as usize];
             assert!(inst.is_none(), "Should never be able to double resolve.");
-            *inst = Some(Instruction::BranchIf(*target));
+            *inst = Some(match branch_type {
+                BranchType::Conditional => Instruction::BranchIf(*target),
+                BranchType::Unconditional => Instruction::Branch(*target),
+            });
         }
         let result = self
             .instructions

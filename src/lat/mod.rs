@@ -2,8 +2,6 @@
 
 use std::{cell::Cell, collections::HashMap};
 
-use lexpr::parse;
-
 use crate::binary::{
     error::BuilderError,
     modules::{ImportSource, ModuleId, ModuleMemberId},
@@ -18,8 +16,8 @@ pub enum Error {
     #[error("Unexpected value type")]
     UnexpectedValueType,
 
-    #[error("Unexpected symbol")]
-    UnexpectedSymbol,
+    #[error("Unexpected symbol: {0:?}")]
+    UnexpectedSymbol(String),
 
     #[error("Invalid module name")]
     InvalidModuleName,
@@ -68,7 +66,7 @@ fn parse_const_len_list<const L: usize>(list: &lexpr::Value) -> Result<[&lexpr::
 fn parse_list_with_head<'a>(head: &str, expr: &'a lexpr::Value) -> Result<&'a lexpr::Value> {
     let (head_symbol, contents) = parse_list_with_initial_symbol(expr)?;
     if head_symbol != head {
-        return Err(Error::UnexpectedSymbol);
+        return Err(Error::UnexpectedSymbol(head_symbol.to_string()));
     }
     Ok(contents)
 }
@@ -140,19 +138,6 @@ enum ModuleItem<'a> {
     Const(ConstantItem<'a>),
 }
 
-impl ModuleItem<'_> {
-    pub fn resolve(
-        &self,
-        builder: &ModuleBuilder,
-        references: &HashMap<&str, ValueRef>,
-    ) -> Result<()> {
-        match self {
-            ModuleItem::Const(constant) => constant.resolve(builder, references),
-            _ => Ok(()),
-        }
-    }
-}
-
 fn parse_module(expr: &lexpr::Value) -> Result<(ModuleId, ConstModule)> {
     let (module_str_value, module_contents) = parse_cons(expr)?;
     let builder = ModuleBuilder::new();
@@ -190,8 +175,17 @@ fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<HashMap<&'a st
 fn resolve_items(builder: &ModuleBuilder, items: &[ModuleItem]) -> Result<()> {
     let references = gather_item_references(items)?;
     for item in items {
-        if let ModuleItem::Const(constant) = item {
-            constant.resolve(builder, &references)?;
+        match item {
+            ModuleItem::Const(constant) => {
+                constant.resolve(builder, &references)?;
+            }
+            ModuleItem::Export(export) => {
+                references
+                    .get(export.local_name)
+                    .ok_or_else(|| Error::UnknownReference(export.local_name.to_string()))?
+                    .export(ModuleMemberId::new(export.local_name))?;
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -206,7 +200,7 @@ fn parse_module_item<'a>(
         "import" => ModuleItem::Import(parse_import_item(builder, rest)?),
         "export" => ModuleItem::Export(parse_export_item(rest)?),
         "const" => ModuleItem::Const(parse_constant_item(builder, rest)?),
-        _ => return Err(Error::UnexpectedSymbol),
+        unknown_symbol => return Err(Error::UnexpectedSymbol(unknown_symbol.to_string())),
     };
     Ok(item)
 }
@@ -297,7 +291,7 @@ fn resolve_constant_compound_expr(
     match parse_symbol(expr.car())? {
         "list" => resolve_list_expr(builder, references, deferred, body)?,
         "fn" => resolve_fn_expr(builder, references, deferred, body)?,
-        _ => return Err(Error::UnexpectedSymbol),
+        unknown_symbol => return Err(Error::UnexpectedSymbol(unknown_symbol.to_string())),
     }
     Ok(())
 }
@@ -362,7 +356,11 @@ fn apply_fn_inst(
                     let [] = parse_const_len_list(args)?;
                     fn_builder.return_dynamic();
                 }
-                _ => return Err(Error::UnexpectedSymbol),
+                "branch" => {
+                    let [target] = parse_const_len_list(args)?;
+                    fn_builder.branch(target.as_keyword().ok_or(Error::UnexpectedValueType)?);
+                }
+                unknown_opcode => return Err(Error::UnexpectedSymbol(unknown_opcode.to_string())),
             }
         }
         _ => return Err(Error::UnexpectedValueType),
@@ -403,6 +401,54 @@ mod tests {
                         (const foo 42)
                         (const bar "baz")
                         (export foo)
+                    )
+                )
+            "#,
+        )?;
+        let _module_set = parse_module_set(&expr)?;
+        Ok(())
+    }
+
+    #[test]
+    fn parse_add_function_module() -> anyhow::Result<()> {
+        let expr = lexpr::from_str(
+            r#"
+                (module-set
+                    ("my.module"
+                        (const foo 1)
+                        (const bar 2)
+                        (export add)
+                        (const add
+                            (fn
+                                (push foo)
+                                (push bar)
+                                (add)
+                                (return 1)
+                            )
+                        )
+                    )
+                )
+            "#,
+        )?;
+        let _module_set = parse_module_set(&expr)?;
+        Ok(())
+    }
+
+    #[test]
+    fn parse_infinite_loop() -> anyhow::Result<()> {
+        let expr = lexpr::from_str(
+            r#"
+                (module-set
+                    ("my.module"
+                        (const foo 1)
+                        (const bar 2)
+                        (export loop)
+                        (const loop
+                            (fn
+                                #:loop
+                                (branch #:loop)
+                            )
+                        )
                     )
                 )
             "#,

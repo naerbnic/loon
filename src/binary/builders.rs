@@ -448,22 +448,6 @@ impl DeferredValue {
     }
 }
 
-impl Drop for DeferredValue {
-    fn drop(&mut self) {
-        // FIXME: If dropped when returning an Err value, this shouldn't panic, to allow the
-        // error to be propagated.
-        match self.0.const_index {
-            ValueRefIndex::Const(index) => {
-                let inner = self.0.builder_inner.0.borrow();
-                if !inner.ref_indexes.borrow().is_index_resolved(index.0) {
-                    panic!("Deferred value not resolved.");
-                }
-            }
-            _ => panic!("Invalid const index."),
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct GlobalValueRef {
     builder_inner: InnerRc,
@@ -527,6 +511,7 @@ impl FunctionBuilder {
     def_build_inst_method!(return_(n: u32));
     def_build_inst_method!(return_dynamic());
     def_build_inst_method!(branch_if(target: &str));
+    def_build_inst_method!(branch(target: &str));
     def_build_inst_method!(define_branch_target(target: &str));
 
     pub fn build(mut self) -> Result<()> {
