@@ -381,7 +381,7 @@ mod tests {
         let ModuleItem::Import(imp) =
             parse_module_item(&ModuleBuilder::new(ModuleId::new(["foo"])), &expr)?
         else {
-            return anyhow::bail!("Wrong type");
+            anyhow::bail!("Wrong type")
         };
         assert_eq!(imp.local_name, "foo");
         Ok(())
@@ -393,7 +393,7 @@ mod tests {
         let ModuleItem::Export(exp) =
             parse_module_item(&ModuleBuilder::new(ModuleId::new(["foo"])), &expr)?
         else {
-            return anyhow::bail!("Wrong type");
+            anyhow::bail!("Wrong type")
         };
         assert_eq!(exp.local_name, "bar");
         Ok(())

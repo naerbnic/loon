@@ -77,7 +77,7 @@ mod tests {
     #[test]
     #[ignore = "Not all opcodes implemented"]
     fn simple_recursive_function_test() -> anyhow::Result<()> {
-        let module_set = super::lat::from_str(
+        let _module_set = super::lat::from_str(
             r#"
                 (module-set
                     ("test"
@@ -103,7 +103,7 @@ mod tests {
                                 (call 3)))))
             "#,
         )?;
-        let runtime = Runtime::new();
+        let _runtime = Runtime::new();
         Ok(())
     }
 }
