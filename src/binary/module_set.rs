@@ -40,7 +40,10 @@ pub struct ModuleSet {
 
 impl ModuleSet {
     pub fn new(modules: impl IntoIterator<Item = ConstModule>) -> Self {
-        let modules: HashMap<ModuleId, ConstModule> = modules.into_iter().map(|module| (module.id().clone(), module)).collect();
+        let modules: HashMap<ModuleId, ConstModule> = modules
+            .into_iter()
+            .map(|module| (module.id().clone(), module))
+            .collect();
 
         let dependency_edges = modules
             .iter()
