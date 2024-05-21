@@ -115,17 +115,13 @@ impl GlobalEnv {
     ///
     /// This does not initialize the module state, and has to be done at a
     /// later pass.
-    pub fn load_module(
-        &self,
-        module_id: ModuleId,
-        module: &binary::modules::ConstModule,
-    ) -> Result<()> {
+    pub fn load_module(&self, const_module: &binary::modules::ConstModule) -> Result<()> {
         let collect_guard = self.lock_collect();
-        let module = Module::from_binary(&collect_guard, module)?;
+        let module = Module::from_binary(&collect_guard, const_module)?;
         self.inner
             .loaded_modules
             .borrow_mut()
-            .insert(module_id, module);
+            .insert(const_module.id().clone(), module);
         Ok(())
     }
 
@@ -147,6 +143,10 @@ impl GlobalEnv {
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
             .set_is_initialized();
         Ok(())
+    }
+
+    pub(super) fn is_module_loaded(&self, module_id: &ModuleId) -> bool {
+        self.inner.loaded_modules.borrow().contains_key(module_id)
     }
 }
 

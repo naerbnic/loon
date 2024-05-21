@@ -11,8 +11,22 @@ use super::{
 pub struct ModuleId(Rc<Vec<ImmString>>);
 
 impl ModuleId {
-    pub fn new<'a>(path: impl IntoIterator<Item = &'a str>) -> Self {
-        ModuleId(Rc::new(path.into_iter().map(ImmString::from_str).collect()))
+    pub fn new<I>(path: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<ImmString>,
+    {
+        ModuleId(Rc::new(path.into_iter().map(Into::into).collect()))
+    }
+}
+
+impl<I> From<I> for ModuleId
+where
+    I: IntoIterator,
+    I::Item: Into<ImmString>,
+{
+    fn from(path: I) -> Self {
+        ModuleId::new(path)
     }
 }
 
@@ -20,8 +34,20 @@ impl ModuleId {
 pub struct ModuleMemberId(ImmString);
 
 impl ModuleMemberId {
-    pub fn new(name: &str) -> Self {
-        ModuleMemberId(ImmString::from_str(name))
+    pub fn new<T>(name: T) -> Self
+    where
+        T: Into<ImmString>,
+    {
+        ModuleMemberId(name.into())
+    }
+}
+
+impl<T> From<T> for ModuleMemberId
+where
+    T: Into<ImmString>,
+{
+    fn from(name: T) -> Self {
+        ModuleMemberId(name.into())
     }
 }
 
@@ -32,10 +58,10 @@ pub struct ImportSource {
 }
 
 impl ImportSource {
-    pub fn new(module_id: ModuleId, import_name: ModuleMemberId) -> Self {
+    pub fn new(module_id: impl Into<ModuleId>, import_name: impl Into<ModuleMemberId>) -> Self {
         ImportSource {
-            module_id,
-            import_name,
+            module_id: module_id.into(),
+            import_name: import_name.into(),
         }
     }
 
@@ -90,6 +116,9 @@ pub fn validate_module(
 }
 
 pub struct ConstModule {
+    /// The unique identifier for this module.
+    id: ModuleId,
+
     /// The set of constants defined in this module. This const table must
     /// be fully defined, with no escaping local references, and globals
     /// must be covered by the global set, or the module's imports.
@@ -115,6 +144,7 @@ pub struct ConstModule {
 
 impl ConstModule {
     pub fn new(
+        id: ModuleId,
         const_table: Vec<ConstValue>,
         imports: Vec<ImportSource>,
         exports: HashMap<ModuleMemberId, u32>,
@@ -123,12 +153,16 @@ impl ConstModule {
     ) -> Result<Self, ValidationError> {
         validate_module(&const_table, global_table_size, imports.len() as u32)?;
         Ok(ConstModule {
+            id,
             const_table,
             imports,
             exports,
             initializer,
             global_table_size,
         })
+    }
+    pub fn id(&self) -> &ModuleId {
+        &self.id
     }
     pub fn const_table(&self) -> &[ConstValue] {
         &self.const_table
@@ -144,5 +178,8 @@ impl ConstModule {
     }
     pub fn initializer(&self) -> Option<u32> {
         self.initializer
+    }
+    pub fn dependencies(&self) -> impl Iterator<Item = &ModuleId> {
+        self.imports.iter().map(|import| import.module_id())
     }
 }

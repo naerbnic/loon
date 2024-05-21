@@ -1,4 +1,4 @@
-use crate::binary::{modules::ModuleId, ConstModule};
+use crate::binary::{module_set::ModuleSet, ConstModule};
 
 use super::{error::Result, global_env::GlobalEnv, TopLevelRuntime};
 
@@ -14,8 +14,24 @@ impl Runtime {
         }
     }
 
-    pub fn load_module(&self, module_id: ModuleId, module: &ConstModule) -> Result<()> {
-        self.global_env.load_module(module_id, module)
+    pub fn load_module(&self, module: &ConstModule) -> Result<()> {
+        self.global_env.load_module(module)
+    }
+
+    pub fn load_module_set(&self, module_set: &ModuleSet) -> Result<()> {
+        if !module_set
+            .external_dependencies()
+            .all(|module_id| self.global_env.is_module_loaded(module_id))
+        {
+            panic!("Dependency not satisfied.");
+        }
+
+        // FIXME: This is a naive implementation that does not handle
+        // dependencies correctly.
+        for module in module_set.modules() {
+            self.load_module(module)?;
+        }
+        Ok(())
     }
 
     #[must_use]

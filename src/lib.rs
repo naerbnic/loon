@@ -8,30 +8,18 @@ mod util;
 #[cfg(test)]
 mod tests {
     use crate::{
-        binary::{
-            instructions::StackIndex,
-            modules::{ImportSource, ModuleId, ModuleMemberId},
-            ModuleBuilder,
-        },
+        binary::{instructions::StackIndex, modules::ImportSource},
         pure_values::Integer,
         runtime::Runtime,
     };
 
     #[test]
     fn simple_complete_test() -> anyhow::Result<()> {
-        let module_id = ModuleId::new(["test"]);
-        let member_id = ModuleMemberId::new("test_func");
-        let module_builder = ModuleBuilder::new();
-        let (test_func, mut test_func_builder) = module_builder.new_function();
-        test_func.export(member_id.clone())?;
-        test_func_builder.add().return_(1);
-        test_func_builder.build()?;
-        let module = module_builder.into_const_module()?;
-
-        let _module_set = super::lat::from_str(
+        let module_set = super::lat::from_str(
             r#"
                 (module-set
                     ("test"
+                        (export test_func)
                         (const test_func
                             (fn 
                                 (add)
@@ -40,14 +28,14 @@ mod tests {
         )?;
 
         let runtime = Runtime::new();
-        runtime.load_module(module_id.clone(), &module)?;
+        runtime.load_module_set(&module_set)?;
 
         let top_level = runtime.make_top_level();
         {
             let mut stack = top_level.stack();
             stack.push_int(1);
             stack.push_int(2);
-            stack.push_import(&ImportSource::new(module_id.clone(), member_id.clone()))?;
+            stack.push_import(&ImportSource::new(["test"], "test_func"))?;
         }
         let num_args = top_level.call_function(2)?;
         assert_eq!(num_args, 1);

@@ -4,6 +4,7 @@ use std::{cell::Cell, collections::HashMap};
 
 use crate::binary::{
     error::BuilderError,
+    module_set::ModuleSet,
     modules::{ImportSource, ModuleId, ModuleMemberId},
     ConstModule, DeferredValue, FunctionBuilder, ModuleBuilder, ValueRef,
 };
@@ -33,8 +34,6 @@ pub enum Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
-
-pub struct ModuleSet(HashMap<ModuleId, ConstModule>);
 
 // Helper to parse list with given head symbol
 fn parse_list_with_initial_symbol(expr: &lexpr::Value) -> Result<(&str, &lexpr::Value)> {
@@ -91,12 +90,12 @@ pub fn from_str(text: &str) -> Result<ModuleSet> {
 
 fn parse_module_set(expr: &lexpr::Value) -> Result<ModuleSet> {
     let modules = parse_list_with_head("module-set", expr)?;
-    let mut module_map = HashMap::new();
+    let mut module_list = Vec::new();
     for module_expr in modules.list_iter().ok_or(Error::UnexpectedValueType)? {
-        let (module_id, module) = parse_module(module_expr)?;
-        module_map.insert(module_id, module);
+        let module = parse_module(module_expr)?;
+        module_list.push(module);
     }
-    Ok(ModuleSet(module_map))
+    Ok(ModuleSet::new(module_list))
 }
 
 struct ImportItem<'a> {
@@ -138,10 +137,10 @@ enum ModuleItem<'a> {
     Const(ConstantItem<'a>),
 }
 
-fn parse_module(expr: &lexpr::Value) -> Result<(ModuleId, ConstModule)> {
+fn parse_module(expr: &lexpr::Value) -> Result<ConstModule> {
     let (module_str_value, module_contents) = parse_cons(expr)?;
-    let builder = ModuleBuilder::new();
     let module_id = parse_module_id(parse_str(module_str_value)?)?;
+    let builder = ModuleBuilder::new(module_id.clone());
     let mut items = Vec::new();
     for module_item_expr in module_contents
         .list_iter()
@@ -153,7 +152,7 @@ fn parse_module(expr: &lexpr::Value) -> Result<(ModuleId, ConstModule)> {
     resolve_items(&builder, &items)?;
 
     let module = builder.into_const_module()?;
-    Ok((module_id, module))
+    Ok(module)
 }
 
 fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<HashMap<&'a str, ValueRef>> {
@@ -375,7 +374,9 @@ mod tests {
     #[test]
     fn parse_import_module_item_works() -> anyhow::Result<()> {
         let expr = lexpr::from_str(r#"(import foo "my.module" bar)"#)?;
-        let ModuleItem::Import(imp) = parse_module_item(&ModuleBuilder::new(), &expr)? else {
+        let ModuleItem::Import(imp) =
+            parse_module_item(&ModuleBuilder::new(ModuleId::new(["foo"])), &expr)?
+        else {
             return anyhow::bail!("Wrong type");
         };
         assert_eq!(imp.local_name, "foo");
@@ -385,7 +386,9 @@ mod tests {
     #[test]
     fn parse_export_module_item_works() -> anyhow::Result<()> {
         let expr = lexpr::from_str(r#"(export bar)"#)?;
-        let ModuleItem::Export(exp) = parse_module_item(&ModuleBuilder::new(), &expr)? else {
+        let ModuleItem::Export(exp) =
+            parse_module_item(&ModuleBuilder::new(ModuleId::new(["foo"])), &expr)?
+        else {
             return anyhow::bail!("Wrong type");
         };
         assert_eq!(exp.local_name, "bar");

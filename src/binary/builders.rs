@@ -21,7 +21,7 @@ use super::{
     const_table::{ConstFunction, ConstIndex, ConstValue},
     error::{BuilderError, Result},
     instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
-    modules::{ConstModule, ImportSource, ModuleMemberId},
+    modules::{ConstModule, ImportSource, ModuleId, ModuleMemberId},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -42,6 +42,7 @@ impl RefResolver {
 }
 
 struct BuilderInner {
+    id: ModuleId,
     imports: Vec<ImportSource>,
     ref_indexes: Rc<RefCell<DisjointSet<ConstIndex>>>,
     values: ValueResolver<RefResolver, ConstValue, BuilderError>,
@@ -54,8 +55,9 @@ struct BuilderInner {
 struct InnerRc(Rc<RefCell<BuilderInner>>);
 
 impl InnerRc {
-    pub fn new() -> Self {
+    pub fn new(id: ModuleId) -> Self {
         InnerRc(Rc::new(RefCell::new(BuilderInner {
+            id,
             imports: Vec::new(),
             ref_indexes: Rc::new(RefCell::new(DisjointSet::new())),
             values: ValueResolver::new(),
@@ -220,6 +222,7 @@ impl InnerRc {
             })
             .map_err(BuilderError::new_other)?;
         Ok(ConstModule::new(
+            inner.id.clone(),
             result,
             inner.imports.clone(),
             exports,
@@ -232,8 +235,8 @@ impl InnerRc {
 pub struct ModuleBuilder(InnerRc);
 
 impl ModuleBuilder {
-    pub fn new() -> Self {
-        ModuleBuilder(InnerRc::new())
+    pub fn new(id: ModuleId) -> Self {
+        ModuleBuilder(InnerRc::new(id))
     }
 
     pub fn add_import(&self, source: ImportSource) -> ValueRef {
@@ -283,12 +286,6 @@ impl ModuleBuilder {
 
     pub fn into_const_module(&self) -> Result<ConstModule> {
         self.0.to_const_module()
-    }
-}
-
-impl Default for ModuleBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -536,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_build_atomic_values() -> anyhow::Result<()> {
-        let value_set = ModuleBuilder::new();
+        let value_set = ModuleBuilder::new(ModuleId::new(["foo"]));
         value_set.new_int(42);
         value_set.into_const_module()?;
         Ok(())
@@ -544,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_build_compound_value() -> anyhow::Result<()> {
-        let value_set = ModuleBuilder::new();
+        let value_set = ModuleBuilder::new(ModuleId::new(["foo"]));
         let i1 = value_set.new_int(42);
         let i2 = value_set.new_int(1138);
         let _list = value_set.new_list(vec![i1.clone(), i2.clone()]);
@@ -554,7 +551,7 @@ mod tests {
 
     #[test]
     fn test_build_function() -> anyhow::Result<()> {
-        let value_set = ModuleBuilder::new();
+        let value_set = ModuleBuilder::new(ModuleId::new(["foo"]));
         let (f, mut builder) = value_set.new_function();
         builder.push_int(42).push_int(1138).add().return_(1);
         builder.build()?;
