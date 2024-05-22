@@ -409,6 +409,18 @@ fn resolve_fn_expr(
     Ok(())
 }
 
+macro_rules! op_parse {
+    ($cons:expr => $(($name:literal $(, $arg:ident)* $(,)?) => $body:block)*) => {
+        match parse_symbol($cons.car())? {
+            $($name => {
+                let [$( $arg ),*] = parse_const_len_list($cons.cdr())?;
+                $body
+            })*
+            unknown_opcode => return Err(Error::UnexpectedSymbol(unknown_opcode.to_string())),
+        }
+    };
+}
+
 fn apply_fn_inst(
     builder: &ModuleBuilder,
     fn_builder: &mut FunctionBuilder,
@@ -420,34 +432,26 @@ fn apply_fn_inst(
             fn_builder.define_branch_target(kw);
         }
         lexpr::Value::Cons(cons) => {
-            let (head, args) = (cons.car(), cons.cdr());
-            match parse_symbol(head)? {
-                "push" => {
-                    let [value_expr] = parse_const_len_list(args)?;
+            op_parse! { cons =>
+                ("push", value_expr) => {
                     let value = parse_constant_expr(builder, references, value_expr)?;
                     fn_builder.push_value(&value)?;
                 }
-                "add" => {
-                    let [] = parse_const_len_list(args)?;
-                    fn_builder.add();
-                }
-                "return" => {
-                    let [num_args] = parse_const_len_list(args)?;
-                    fn_builder.return_(parse_int(num_args)? as u32);
-                }
-                "return_dynamic" => {
-                    let [] = parse_const_len_list(args)?;
-                    fn_builder.return_dynamic();
-                }
-                "branch" => {
-                    let [target] = parse_const_len_list(args)?;
-                    fn_builder.branch(parse_keyword(target)?);
-                }
-                "pop" => {
-                    let [n_pop] = parse_const_len_list(args)?;
+                ("pop", n_pop) => {
                     fn_builder.pop(parse_int(n_pop)? as u32);
                 }
-                unknown_opcode => return Err(Error::UnexpectedSymbol(unknown_opcode.to_string())),
+                ("add") => {
+                    fn_builder.add();
+                }
+                ("return", num_args) => {
+                    fn_builder.return_(parse_int(num_args)? as u32);
+                }
+                ("return_dynamic") => {
+                    fn_builder.return_dynamic();
+                }
+                ("branch", target) => {
+                    fn_builder.branch(parse_keyword(target)?);
+                }
             }
         }
         _ => {
