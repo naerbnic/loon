@@ -1,6 +1,9 @@
 //! A description of a text format to describe the contents of a Loon VM program.
 
-use std::{cell::Cell, collections::HashMap};
+use std::{
+    cell::Cell,
+    collections::{HashMap, HashSet},
+};
 
 use crate::binary::{
     error::BuilderError,
@@ -9,13 +12,42 @@ use crate::binary::{
     ConstModule, DeferredValue, FunctionBuilder, ModuleBuilder, ValueRef,
 };
 
+#[non_exhaustive]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum SExprType {
+    Null,
+    Cons,
+    Bool,
+    Number,
+    String,
+    Symbol,
+    Keyword,
+    Unsupported,
+}
+
+impl SExprType {
+    fn from_value(lexpr: &lexpr::Value) -> Self {
+        match lexpr {
+            lexpr::Value::Null => SExprType::Null,
+            lexpr::Value::Cons(_) => SExprType::Cons,
+            lexpr::Value::Bool(_) => SExprType::Bool,
+            lexpr::Value::Number(_) => SExprType::Number,
+            lexpr::Value::String(_) => SExprType::String,
+            lexpr::Value::Symbol(_) => SExprType::Symbol,
+            lexpr::Value::Keyword(_) => SExprType::Keyword,
+            _ => SExprType::Unsupported,
+        }
+    }
+}
+
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
     Lexpr(#[from] lexpr::parse::Error),
 
-    #[error("Unexpected value type")]
-    UnexpectedValueType,
+    #[error("Unexpected value type: expected {0:?}, got {1:?}")]
+    UnexpectedValueType(HashSet<SExprType>, SExprType),
 
     #[error("Unexpected symbol: {0:?}")]
     UnexpectedSymbol(String),
@@ -23,8 +55,8 @@ pub enum Error {
     #[error("Invalid module name")]
     InvalidModuleName,
 
-    #[error("Wrong param size")]
-    WrongParamSize,
+    #[error("Wrong param size: expected {0}, got {1}")]
+    WrongParamSize(usize, usize),
 
     #[error(transparent)]
     Builder(#[from] BuilderError),
@@ -33,33 +65,80 @@ pub enum Error {
     UnknownReference(String),
 }
 
+impl Error {
+    pub fn new_unexpected_value_type(
+        expected: impl IntoIterator<Item = SExprType>,
+        got: &lexpr::Value,
+    ) -> Self {
+        Error::UnexpectedValueType(expected.into_iter().collect(), SExprType::from_value(got))
+    }
+}
+
 type Result<T> = std::result::Result<T, Error>;
 
 // Helper to parse list with given head symbol
 fn parse_list_with_initial_symbol(expr: &lexpr::Value) -> Result<(&str, &lexpr::Value)> {
-    let cons = expr.as_cons().ok_or(Error::UnexpectedValueType)?;
-    let head_symbol = cons.car().as_symbol().ok_or(Error::UnexpectedValueType)?;
-    Ok((head_symbol, cons.cdr()))
+    let (head, rest) = parse_cons(expr)?;
+    let head_symbol = parse_symbol(head)?;
+    Ok((head_symbol, rest))
 }
 
 fn parse_cons(expr: &lexpr::Value) -> Result<(&lexpr::Value, &lexpr::Value)> {
-    let cons = expr.as_cons().ok_or(Error::UnexpectedValueType)?;
+    let cons = expr
+        .as_cons()
+        .ok_or_else(|| Error::new_unexpected_value_type([SExprType::Cons], expr))?;
     Ok((cons.car(), cons.cdr()))
 }
 
 fn parse_symbol(expr: &lexpr::Value) -> Result<&str> {
-    expr.as_symbol().ok_or(Error::UnexpectedValueType)
+    expr.as_symbol()
+        .ok_or_else(|| Error::new_unexpected_value_type([SExprType::Symbol], expr))
+}
+
+fn parse_keyword(expr: &lexpr::Value) -> Result<&str> {
+    expr.as_keyword()
+        .ok_or_else(|| Error::new_unexpected_value_type([SExprType::Keyword], expr))
 }
 
 fn parse_str(expr: &lexpr::Value) -> Result<&str> {
-    expr.as_str().ok_or(Error::UnexpectedValueType)
+    expr.as_str()
+        .ok_or_else(|| Error::new_unexpected_value_type([SExprType::String], expr))
+}
+
+fn parse_list(expr: &lexpr::Value) -> Result<impl Iterator<Item = &lexpr::Value>> {
+    // A list should only consist of Cons and Null cells. Validate here.
+    let mut curr = expr;
+    loop {
+        match curr {
+            lexpr::Value::Cons(cons) => {
+                curr = cons.cdr();
+            }
+            lexpr::Value::Null => {
+                break;
+            }
+            _ => {
+                return Err(Error::new_unexpected_value_type(
+                    [SExprType::Cons, SExprType::Null],
+                    curr,
+                ));
+            }
+        }
+    }
+
+    expr.list_iter()
+        .ok_or_else(|| Error::new_unexpected_value_type([SExprType::Cons, SExprType::Null], expr))
+}
+
+fn parse_int(expr: &lexpr::Value) -> Result<i64> {
+    expr.as_i64()
+        .ok_or_else(|| Error::new_unexpected_value_type([SExprType::Number], expr))
 }
 
 fn parse_const_len_list<const L: usize>(list: &lexpr::Value) -> Result<[&lexpr::Value; L]> {
-    let iter = list.list_iter().ok_or(Error::UnexpectedValueType)?;
+    let iter = parse_list(list)?;
     iter.collect::<Vec<_>>()
         .try_into()
-        .map_err(|_| Error::WrongParamSize)
+        .map_err(|v: Vec<_>| Error::WrongParamSize(L, v.len()))
 }
 
 fn parse_list_with_head<'a>(head: &str, expr: &'a lexpr::Value) -> Result<&'a lexpr::Value> {
@@ -91,7 +170,7 @@ pub fn from_str(text: &str) -> Result<ModuleSet> {
 fn parse_module_set(expr: &lexpr::Value) -> Result<ModuleSet> {
     let modules = parse_list_with_head("module-set", expr)?;
     let mut module_list = Vec::new();
-    for module_expr in modules.list_iter().ok_or(Error::UnexpectedValueType)? {
+    for module_expr in parse_list(modules)? {
         let module = parse_module(module_expr)?;
         module_list.push(module);
     }
@@ -142,10 +221,7 @@ fn parse_module(expr: &lexpr::Value) -> Result<ConstModule> {
     let module_id = parse_module_id(parse_str(module_str_value)?)?;
     let builder = ModuleBuilder::new(module_id.clone());
     let mut items = Vec::new();
-    for module_item_expr in module_contents
-        .list_iter()
-        .ok_or(Error::UnexpectedValueType)?
-    {
+    for module_item_expr in parse_list(module_contents)? {
         items.push(parse_module_item(&builder, module_item_expr)?)
     }
 
@@ -275,7 +351,15 @@ fn resolve_constant_expr(
     } else if let Some(cons) = expr.as_cons() {
         resolve_constant_compound_expr(builder, references, deferred, cons)?;
     } else {
-        return Err(Error::UnexpectedValueType);
+        return Err(Error::new_unexpected_value_type(
+            [
+                SExprType::Number,
+                SExprType::Symbol,
+                SExprType::String,
+                SExprType::Cons,
+            ],
+            expr,
+        ));
     }
     Ok(())
 }
@@ -302,7 +386,7 @@ fn resolve_list_expr(
     expr: &lexpr::Value,
 ) -> Result<()> {
     let mut values = Vec::new();
-    for item_expr in expr.list_iter().ok_or(Error::UnexpectedValueType)? {
+    for item_expr in parse_list(expr)? {
         let (item, item_deferred) = builder.new_deferred();
         resolve_constant_expr(builder, references, item_deferred, item_expr)?;
         values.push(item);
@@ -318,7 +402,7 @@ fn resolve_fn_expr(
     body: &lexpr::Value,
 ) -> Result<()> {
     let mut fn_builder = deferred.into_function_builder();
-    for inst_expr in body.list_iter().ok_or(Error::UnexpectedValueType)? {
+    for inst_expr in parse_list(body)? {
         apply_fn_inst(builder, &mut fn_builder, references, inst_expr)?;
     }
     fn_builder.build()?;
@@ -349,7 +433,7 @@ fn apply_fn_inst(
                 }
                 "return" => {
                     let [num_args] = parse_const_len_list(args)?;
-                    fn_builder.return_(num_args.as_i64().ok_or(Error::UnexpectedValueType)? as u32);
+                    fn_builder.return_(parse_int(num_args)? as u32);
                 }
                 "return_dynamic" => {
                     let [] = parse_const_len_list(args)?;
@@ -357,16 +441,21 @@ fn apply_fn_inst(
                 }
                 "branch" => {
                     let [target] = parse_const_len_list(args)?;
-                    fn_builder.branch(target.as_keyword().ok_or(Error::UnexpectedValueType)?);
+                    fn_builder.branch(parse_keyword(target)?);
                 }
                 "pop" => {
                     let [n_pop] = parse_const_len_list(args)?;
-                    fn_builder.pop(n_pop.as_i64().ok_or(Error::UnexpectedValueType)? as u32);
+                    fn_builder.pop(parse_int(n_pop)? as u32);
                 }
                 unknown_opcode => return Err(Error::UnexpectedSymbol(unknown_opcode.to_string())),
             }
         }
-        _ => return Err(Error::UnexpectedValueType),
+        _ => {
+            return Err(Error::new_unexpected_value_type(
+                [SExprType::Keyword, SExprType::Cons],
+                body,
+            ))
+        }
     }
     Ok(())
 }
