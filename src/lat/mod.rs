@@ -587,4 +587,25 @@ mod tests {
         let _module_set = parse_module_set(&expr)?;
         Ok(())
     }
+
+    #[test]
+    fn parse_global_reference_fails() -> anyhow::Result<()> {
+        let expr = lexpr::from_str(
+            r#"
+                (module-set
+                    ("my.module"
+                        (global foo)
+                        (const bar (list foo))
+                    )
+                )
+            "#,
+        )?;
+        let result = parse_module_set(&expr);
+        assert!(
+            matches!(result, Err(Error::Builder(BuilderError::ExpectedNonGlobal))),
+            "found error {:?}",
+            result.err()
+        );
+        Ok(())
+    }
 }

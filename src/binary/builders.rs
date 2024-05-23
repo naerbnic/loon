@@ -274,11 +274,9 @@ impl InnerRc {
                 )
             })
             .transpose()?;
-        let result = std::mem::take(&mut inner.values)
-            .into_values(&RefResolver {
-                index_layer: inner.ref_indexes.clone(),
-            })
-            .map_err(BuilderError::new_other)?;
+        let result = std::mem::take(&mut inner.values).into_values(&RefResolver {
+            index_layer: inner.ref_indexes.clone(),
+        })?;
         Ok(ConstModule::new(
             inner.id.clone(),
             result,
