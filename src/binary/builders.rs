@@ -116,16 +116,16 @@ impl BuilderInner {
         self.resolve_ref(
             index,
             ValueIndex::Const(ConstIndex::ModuleConst(resolve_ref)),
-        );
+        )?;
         Ok(())
     }
 
     pub fn resolve_ref(&mut self, index: RefIndex, value: ValueIndex) -> Result<()> {
-        Ok(self
-            .ref_indexes
+        self.ref_indexes
             .borrow_mut()
             .resolve_set(index.0, value)
-            .expect("Index should be valid."))
+            .expect("Index should be valid.");
+        Ok(())
     }
 }
 
@@ -154,6 +154,14 @@ impl InnerRc {
         ValueRef {
             builder_inner: self.clone(),
             const_index: inner.new_import(source),
+        }
+    }
+
+    pub fn new_global(&self) -> ValueRef {
+        let mut inner = self.0.borrow_mut();
+        ValueRef {
+            builder_inner: self.clone(),
+            const_index: inner.new_global(),
         }
     }
 
@@ -238,7 +246,7 @@ impl InnerRc {
         if !self.ptr_eq(&value_ref.builder_inner) {
             return Err(BuilderError::MismatchedBuilder);
         }
-        Ok(value_ref.const_index.clone())
+        Ok(value_ref.const_index)
     }
 
     pub fn to_const_module(&self) -> Result<ConstModule> {
@@ -301,17 +309,8 @@ impl ModuleBuilder {
         self.0.add_import(source)
     }
 
-    pub fn new_global(&self) -> GlobalValueRef {
-        let index = {
-            let mut inner = self.0 .0.borrow_mut();
-            let index = inner.num_globals;
-            inner.num_globals += 1;
-            index
-        };
-        GlobalValueRef {
-            builder_inner: self.0.clone(),
-            index,
-        }
+    pub fn new_global(&self) -> ValueRef {
+        self.0.new_global()
     }
 
     pub fn new_deferred(&self) -> (ValueRef, DeferredValue) {
@@ -344,19 +343,6 @@ impl ModuleBuilder {
 
     pub fn into_const_module(&self) -> Result<ConstModule> {
         self.0.to_const_module()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ValueRefIndex(RefIndex);
-
-impl ValueRefIndex {
-    pub fn as_module_const(&self) -> RefIndex {
-        self.0
-    }
-
-    fn resolve_to_const_index(&self, resolver: &RefResolver) -> Result<ValueIndex> {
-        resolver.resolve_ref(self.0)
     }
 }
 
@@ -500,7 +486,7 @@ impl FunctionBuilder {
     pub fn push_value(&mut self, value: &ValueRef) -> Result<&mut Self> {
         let const_index = self.builder_inner.find_ref_index(value)?;
         let function_const_index = self.const_indexes.len();
-        self.const_indexes.push(const_index.clone());
+        self.const_indexes.push(const_index);
         self.insts.push_const(function_const_index as u32);
         Ok(self)
     }
