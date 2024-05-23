@@ -210,10 +210,21 @@ impl ConstantItem<'_> {
     }
 }
 
+struct GlobalItem<'a> {
+    local_name: &'a str,
+    value: ValueRef,
+}
+
+struct InitItem<'a> {
+    body: &'a lexpr::Value,
+}
+
 enum ModuleItem<'a> {
     Import(ImportItem<'a>),
     Export(ExportItem<'a>),
     Const(ConstantItem<'a>),
+    Global(GlobalItem<'a>),
+    Init(InitItem<'a>),
 }
 
 fn parse_module(expr: &lexpr::Value) -> Result<ConstModule> {
@@ -241,7 +252,10 @@ fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<HashMap<&'a st
             ModuleItem::Import(import) => {
                 references.insert(import.local_name, import.value_ref.clone());
             }
-            _ => {}
+            ModuleItem::Global(global) => {
+                references.insert(global.local_name, global.value.clone());
+            }
+            ModuleItem::Init(_) | ModuleItem::Export(_) => {}
         }
     }
     Ok(references)
@@ -260,7 +274,10 @@ fn resolve_items(builder: &ModuleBuilder, items: &[ModuleItem]) -> Result<()> {
                     .ok_or_else(|| Error::UnknownReference(export.local_name.to_string()))?
                     .export(ModuleMemberId::new(export.local_name))?;
             }
-            _ => {}
+            ModuleItem::Init(init) => {
+                resolve_fn_expr(builder, &references, builder.new_initializer()?, init.body)?;
+            }
+            ModuleItem::Global(_) | ModuleItem::Import(_) => {}
         }
     }
     Ok(())
@@ -275,6 +292,8 @@ fn parse_module_item<'a>(
         "import" => ModuleItem::Import(parse_import_item(builder, rest)?),
         "export" => ModuleItem::Export(parse_export_item(rest)?),
         "const" => ModuleItem::Const(parse_constant_item(builder, rest)?),
+        "global" => ModuleItem::Global(parse_global_item(builder, rest)?),
+        "init" => ModuleItem::Init(InitItem { body: rest }),
         unknown_symbol => return Err(Error::UnexpectedSymbol(unknown_symbol.to_string())),
     };
     Ok(item)
@@ -315,6 +334,18 @@ fn parse_constant_item<'a>(
         value,
         deferred_value: Cell::new(Some(deferred_value)),
         expr,
+    })
+}
+
+fn parse_global_item<'a>(
+    builder: &ModuleBuilder,
+    body: &'a lexpr::Value,
+) -> Result<GlobalItem<'a>> {
+    // Has the form (global <local-name-sym>)
+    let [local_name] = parse_const_len_list(body)?;
+    Ok(GlobalItem {
+        local_name: parse_symbol(local_name)?,
+        value: builder.new_global(),
     })
 }
 
@@ -373,7 +404,7 @@ fn resolve_constant_compound_expr(
     let body = expr.cdr();
     match parse_symbol(expr.car())? {
         "list" => resolve_list_expr(builder, references, deferred, body)?,
-        "fn" => resolve_fn_expr(builder, references, deferred, body)?,
+        "fn" => resolve_fn_expr(builder, references, deferred.into_function_builder(), body)?,
         unknown_symbol => return Err(Error::UnexpectedSymbol(unknown_symbol.to_string())),
     }
     Ok(())
@@ -398,10 +429,9 @@ fn resolve_list_expr(
 fn resolve_fn_expr(
     builder: &ModuleBuilder,
     references: &HashMap<&str, ValueRef>,
-    deferred: DeferredValue,
+    mut fn_builder: FunctionBuilder,
     body: &lexpr::Value,
 ) -> Result<()> {
-    let mut fn_builder = deferred.into_function_builder();
     for inst_expr in parse_list(body)? {
         apply_fn_inst(builder, &mut fn_builder, references, inst_expr)?;
     }
