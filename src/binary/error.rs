@@ -22,6 +22,9 @@ pub enum BuilderError {
     #[error("Expected a non-global value.")]
     ExpectedNonGlobal,
 
+    #[error("Expected a global value.")]
+    ExpectedGlobal,
+
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }

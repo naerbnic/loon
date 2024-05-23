@@ -1,19 +1,20 @@
 use crate::{
     binary::{
-        error::Result,
+        error::{BuilderError, Result},
         instructions::{CallInstruction, CompareOp, InstructionListBuilder, StackIndex},
         ConstFunction, ConstValue,
     },
     pure_values::Integer,
 };
 
-use super::{DeferredValue, GlobalValueRef, InnerRc, RefIndex, ValueRef};
+use super::{DeferredValue, InnerRc, RefIndex, ValueIndex, ValueRef};
 
 pub struct FunctionBuilder {
     builder_inner: InnerRc,
     /// The value reference for the deferred function being built.
     deferred: DeferredValue,
-    const_indexes: Vec<RefIndex>,
+    value_pushes: Vec<(u32, RefIndex)>,
+    value_pops: Vec<(u32, RefIndex)>,
     insts: InstructionListBuilder,
 }
 
@@ -31,7 +32,8 @@ impl FunctionBuilder {
         FunctionBuilder {
             builder_inner,
             deferred,
-            const_indexes: Vec::new(),
+            value_pushes: Vec::new(),
+            value_pops: Vec::new(),
             insts: InstructionListBuilder::new(),
         }
     }
@@ -42,23 +44,17 @@ impl FunctionBuilder {
     }
 
     pub fn push_value(&mut self, value: &ValueRef) -> Result<&mut Self> {
-        let const_index = self.builder_inner.find_ref_index(value)?;
-        let function_const_index = self.const_indexes.len();
-        self.const_indexes.push(const_index);
-        self.insts.push_const(function_const_index as u32);
+        let ref_index = self.builder_inner.find_ref_index(value)?;
+        let inst_index = self.insts.add_deferred_inst();
+        self.value_pushes.push((inst_index, ref_index));
         Ok(self)
     }
 
-    pub fn push_global(&mut self, value: &GlobalValueRef) -> &mut Self {
-        assert!(self.builder_inner.ptr_eq(&value.builder_inner));
-        self.insts.push_global(value.index);
-        self
-    }
-
-    pub fn pop_global(&mut self, value: &GlobalValueRef) -> &mut Self {
-        assert!(self.builder_inner.ptr_eq(&value.builder_inner));
-        self.insts.pop_global(value.index);
-        self
+    pub fn pop_value(&mut self, value: &ValueRef) -> Result<&mut Self> {
+        let ref_index = self.builder_inner.find_ref_index(value)?;
+        let inst_index = self.insts.add_deferred_inst();
+        self.value_pops.push((inst_index, ref_index));
+        Ok(self)
     }
 
     def_build_inst_method!(add());
@@ -77,16 +73,38 @@ impl FunctionBuilder {
     def_build_inst_method!(branch(target: &str));
     def_build_inst_method!(define_branch_target(target: &str));
 
-    pub fn build(mut self) -> Result<()> {
-        let instructions = std::mem::take(&mut self.insts).build()?;
-        let const_indexes = std::mem::take(&mut self.const_indexes);
+    pub fn build(self) -> Result<()> {
+        let mut instructions = self.insts;
+        let value_pushes = self.value_pushes;
+        let value_pops = self.value_pops;
+
         self.deferred.resolve_fn(|resolver| {
+            let mut const_indexes = Vec::new();
+            for (inst_index, ref_index) in value_pushes {
+                match resolver.resolve_ref(ref_index)? {
+                    ValueIndex::Const(const_index) => {
+                        let local_index = const_indexes.len();
+                        const_indexes.push(const_index);
+                        instructions.resolve_push_const(inst_index, local_index as u32)?;
+                    }
+                    super::ValueIndex::Global(global_index) => {
+                        instructions.resolve_push_global(inst_index, global_index)?;
+                    }
+                }
+            }
+            for (inst_index, ref_index) in value_pops {
+                match resolver.resolve_ref(ref_index)? {
+                    ValueIndex::Const(_) => {
+                        return Err(BuilderError::ExpectedGlobal);
+                    }
+                    super::ValueIndex::Global(global_index) => {
+                        instructions.resolve_pop_global(inst_index, global_index)?;
+                    }
+                }
+            }
             Ok(ConstValue::Function(ConstFunction::new(
-                const_indexes
-                    .into_iter()
-                    .map(|i| resolver.resolve_to_const_index(i))
-                    .collect::<Result<Vec<_>>>()?,
-                instructions,
+                const_indexes,
+                instructions.build()?,
             )))
         })?;
         Ok(())

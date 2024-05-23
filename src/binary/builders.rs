@@ -440,12 +440,6 @@ impl DeferredValue {
     }
 }
 
-#[derive(Clone)]
-pub struct GlobalValueRef {
-    builder_inner: InnerRc,
-    index: u32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

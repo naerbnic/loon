@@ -157,10 +157,40 @@ impl InstructionListBuilder {
         }
     }
 
-    inst_builder!(push_const, PushConst(c: u32));
+    pub fn add_deferred_inst(&mut self) -> u32 {
+        let index = self.instructions.len() as u32;
+        self.instructions.push(None);
+        index
+    }
+
+    pub fn resolve_push_const(&mut self, inst_index: u32, const_index: u32) -> Result<()> {
+        let target_inst = &mut self.instructions[inst_index as usize];
+        if target_inst.is_some() {
+            return Err(BuilderError::AlreadyExists);
+        }
+        *target_inst = Some(Instruction::PushConst(const_index));
+        Ok(())
+    }
+
+    pub fn resolve_push_global(&mut self, inst_index: u32, global_index: u32) -> Result<()> {
+        let target_inst = &mut self.instructions[inst_index as usize];
+        if target_inst.is_some() {
+            return Err(BuilderError::AlreadyExists);
+        }
+        *target_inst = Some(Instruction::PushGlobal(global_index));
+        Ok(())
+    }
+
+    pub fn resolve_pop_global(&mut self, inst_index: u32, global_index: u32) -> Result<()> {
+        let target_inst = &mut self.instructions[inst_index as usize];
+        if target_inst.is_some() {
+            return Err(BuilderError::AlreadyExists);
+        }
+        *target_inst = Some(Instruction::PushGlobal(global_index));
+        Ok(())
+    }
+
     inst_builder!(push_copy, PushCopy(s: StackIndex));
-    inst_builder!(push_global, PushGlobal(index: u32));
-    inst_builder!(pop_global, PopGlobal(index: u32));
     inst_builder!(pop, Pop(n: u32));
     inst_builder!(add, Add);
     inst_builder!(bool_and, BoolAnd);
@@ -168,11 +198,15 @@ impl InstructionListBuilder {
     inst_builder!(bool_xor, BoolXor);
     inst_builder!(bool_not, BoolNot);
     inst_builder!(compare, Compare(op: CompareOp));
-    // inst_builder!(branch, Branch(target: BranchTarget));
     inst_builder!(call, Call(call: CallInstruction));
     inst_builder!(call_dynamic, CallDynamic);
     inst_builder!(return_, Return(n: u32));
     inst_builder!(return_dynamic, ReturnDynamic);
+
+    // These are only used in testing, as the top-level builder delays the
+    // resolution of push/pop instructions until the end.
+    #[cfg(test)]
+    inst_builder!(push_const, PushConst(c: u32));
 
     pub fn branch(&mut self, target: &str) -> &mut Self {
         let target = self.branch_target_names.intern(target);
