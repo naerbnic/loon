@@ -19,6 +19,9 @@ pub enum BuilderError {
     #[error("Reference was unresolved.")]
     UnresolvedReference,
 
+    #[error("Expected a non-global value.")]
+    ExpectedNonGlobal,
+
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }

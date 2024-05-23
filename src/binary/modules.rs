@@ -51,7 +51,7 @@ where
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ImportSource {
     module_id: ModuleId,
     import_name: ModuleMemberId,
