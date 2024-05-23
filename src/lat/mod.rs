@@ -194,11 +194,7 @@ struct ConstantItem<'a> {
 }
 
 impl ConstantItem<'_> {
-    pub fn resolve(
-        &self,
-        builder: &ModuleBuilder,
-        references: &HashMap<&str, ValueRef>,
-    ) -> Result<()> {
+    pub fn resolve(&self, builder: &ModuleBuilder, references: &ReferenceSet) -> Result<()> {
         resolve_constant_expr(
             builder,
             references,
@@ -242,7 +238,17 @@ fn parse_module(expr: &lexpr::Value) -> Result<ConstModule> {
     Ok(module)
 }
 
-fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<HashMap<&'a str, ValueRef>> {
+struct ReferenceSet<'a>(HashMap<&'a str, ValueRef>);
+
+impl ReferenceSet<'_> {
+    fn get(&self, name: &str) -> Result<&ValueRef> {
+        self.0
+            .get(name)
+            .ok_or_else(|| Error::UnknownReference(name.to_string()))
+    }
+}
+
+fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<ReferenceSet<'a>> {
     let mut references = HashMap::new();
     for item in items {
         match item {
@@ -258,7 +264,7 @@ fn gather_item_references<'a>(items: &[ModuleItem<'a>]) -> Result<HashMap<&'a st
             ModuleItem::Init(_) | ModuleItem::Export(_) => {}
         }
     }
-    Ok(references)
+    Ok(ReferenceSet(references))
 }
 
 fn resolve_items(builder: &ModuleBuilder, items: &[ModuleItem]) -> Result<()> {
@@ -270,8 +276,7 @@ fn resolve_items(builder: &ModuleBuilder, items: &[ModuleItem]) -> Result<()> {
             }
             ModuleItem::Export(export) => {
                 references
-                    .get(export.local_name)
-                    .ok_or_else(|| Error::UnknownReference(export.local_name.to_string()))?
+                    .get(export.local_name)?
                     .export(ModuleMemberId::new(export.local_name))?;
             }
             ModuleItem::Init(init) => {
@@ -351,7 +356,7 @@ fn parse_global_item<'a>(
 
 fn parse_constant_expr(
     builder: &ModuleBuilder,
-    references: &HashMap<&str, ValueRef>,
+    references: &ReferenceSet,
     expr: &lexpr::Value,
 ) -> Result<ValueRef> {
     let (value, deferred_value) = builder.new_deferred();
@@ -361,7 +366,7 @@ fn parse_constant_expr(
 
 fn resolve_constant_expr(
     builder: &ModuleBuilder,
-    references: &HashMap<&str, ValueRef>,
+    references: &ReferenceSet,
     deferred: DeferredValue,
     expr: &lexpr::Value,
 ) -> Result<()> {
@@ -374,11 +379,7 @@ fn resolve_constant_expr(
     } else if let Some(s) = expr.as_str() {
         deferred.resolve_string(s)?;
     } else if let Some(name) = expr.as_symbol() {
-        if let Some(value) = references.get(name) {
-            deferred.resolve_other(value)?;
-        } else {
-            return Err(Error::UnknownReference(name.to_string()));
-        }
+        deferred.resolve_other(references.get(name)?)?;
     } else if let Some(cons) = expr.as_cons() {
         resolve_constant_compound_expr(builder, references, deferred, cons)?;
     } else {
@@ -397,7 +398,7 @@ fn resolve_constant_expr(
 
 fn resolve_constant_compound_expr(
     builder: &ModuleBuilder,
-    references: &HashMap<&str, ValueRef>,
+    references: &ReferenceSet,
     deferred: DeferredValue,
     expr: &lexpr::Cons,
 ) -> Result<()> {
@@ -412,7 +413,7 @@ fn resolve_constant_compound_expr(
 
 fn resolve_list_expr(
     builder: &ModuleBuilder,
-    references: &HashMap<&str, ValueRef>,
+    references: &ReferenceSet,
     deferred: DeferredValue,
     expr: &lexpr::Value,
 ) -> Result<()> {
@@ -428,7 +429,7 @@ fn resolve_list_expr(
 
 fn resolve_fn_expr(
     builder: &ModuleBuilder,
-    references: &HashMap<&str, ValueRef>,
+    references: &ReferenceSet,
     mut fn_builder: FunctionBuilder,
     body: &lexpr::Value,
 ) -> Result<()> {
@@ -454,7 +455,7 @@ macro_rules! op_parse {
 fn apply_fn_inst(
     builder: &ModuleBuilder,
     fn_builder: &mut FunctionBuilder,
-    references: &HashMap<&str, ValueRef>,
+    references: &ReferenceSet,
     body: &lexpr::Value,
 ) -> Result<()> {
     match body {
