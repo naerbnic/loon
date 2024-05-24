@@ -7,6 +7,7 @@ use std::{
 
 use crate::binary::{
     error::BuilderError,
+    instructions::{CallInstruction, CompareOp, StackIndex},
     module_set::ModuleSet,
     modules::{ImportSource, ModuleId, ModuleMemberId},
     ConstModule, DeferredValue, FunctionBuilder, ModuleBuilder, ValueRef,
@@ -471,6 +472,20 @@ fn apply_fn_inst(
                 ("pop", n_pop) => {
                     fn_builder.pop(parse_int(n_pop)? as u32);
                 }
+                ("write_stack", stack_end, index) => {
+                    let index = parse_int(index)? as u32;
+                    let stack_end = parse_symbol(stack_end)?;
+                    let stack_index = match stack_end {
+                        "top" => {
+                            StackIndex::FromTop(index)
+                        }
+                        "bot" => {
+                            StackIndex::FromBottom(index)
+                        }
+                        _ => return Err(Error::UnexpectedSymbol(stack_end.to_string())),
+                    };
+                    fn_builder.write_stack(stack_index);
+                }
                 ("add") => {
                     fn_builder.add();
                 }
@@ -482,6 +497,37 @@ fn apply_fn_inst(
                 }
                 ("branch", target) => {
                     fn_builder.branch(parse_keyword(target)?);
+                }
+                ("branch_if", target) => {
+                    fn_builder.branch_if(parse_keyword(target)?);
+                }
+                ("push_copy", stack_end, index) => {
+                    let index = parse_int(index)? as u32;
+                    let stack_end = parse_symbol(stack_end)?;
+                    let stack_index = match stack_end {
+                        "top" => {
+                            StackIndex::FromTop(index)
+                        }
+                        "bot" => {
+                            StackIndex::FromBottom(index)
+                        }
+                        _ => return Err(Error::UnexpectedSymbol(stack_end.to_string())),
+                    };
+                    fn_builder.push_copy(stack_index);
+                }
+                ("call", num_args, num_returns) => {
+                    let num_args = parse_int(num_args)? as u32;
+                    let num_returns = parse_int(num_returns)? as u32;
+                    fn_builder.call(CallInstruction { num_args, num_returns });
+                }
+                ("cmp", op) => {
+                    let op = parse_symbol(op)?;
+                    match op {
+                        "ref_eq" => {
+                            fn_builder.compare(CompareOp::RefEq);
+                        }
+                        _ => return Err(Error::UnexpectedSymbol(op.to_string())),
+                    }
                 }
             }
         }

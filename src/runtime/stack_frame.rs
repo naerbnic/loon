@@ -108,6 +108,20 @@ impl LocalStack {
             .cloned()
     }
 
+    pub fn set_at_index(&self, index: StackIndex, value: Value) -> Result<()> {
+        let index = match index {
+            StackIndex::FromTop(i) => self
+                .stack
+                .borrow()
+                .len()
+                .checked_sub((i as usize) + 1)
+                .ok_or_else(|| RuntimeError::new_internal_error("Stack index out of range"))?,
+            StackIndex::FromBottom(i) => i as usize,
+        };
+        self.stack.borrow_mut()[index] = value;
+        Ok(())
+    }
+
     pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
         let len = len as usize;
         let start = self.stack.borrow().len().checked_sub(len).ok_or_else(|| {

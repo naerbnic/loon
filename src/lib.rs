@@ -75,35 +75,62 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Not all opcodes implemented"]
+    // #[ignore = "Not all opcodes implemented"]
     fn simple_recursive_function_test() -> anyhow::Result<()> {
-        let _module_set = super::lat::from_str(
+        let module_set = super::lat::from_str(
             r#"
                 (module-set
                     ("test"
                         (const fib_inner
-                            (fn 
-                                (dup)
-                                (push 1)
-                                (sub)
+                            (fn
+                                ; Test if iterations is 0
+                                (push_copy bot 0)
+                                (push 0)
+                                (cmp ref_eq)
+                                (branch_if #:end)
+
+                                (push_copy bot 0)
+                                (push -1)
+                                (add)
+                                (write_stack bot 0)
+
+                                (push_copy bot 2)
+                                (push_copy bot 2)
+                                (push_copy bot 1)
+                                (add)
+                                (write_stack bot 2)
+                                (write_stack bot 1)
                                 (push fib_inner)
-                                (call 2)
-                                (swap)
-                                (dup)
-                                (push 2)
-                                (sub)
-                                (push fib_inner)
-                                (call 2)
-                                (add)))
+                                (call 3 1)
+                                (return 1)
+                                #:end
+                                (push_copy bot 2)
+                                (return 1)
+                                ))
                         (const fib
                             (fn 
                                 (push 0)
                                 (push 1)
                                 (push fib_inner)
-                                (call 3)))))
+                                (call 3 1)
+                                (return 1)))
+                        (export fib)))
             "#,
         )?;
-        let _runtime = Runtime::new();
+        let runtime = Runtime::new();
+        runtime.load_module_set(&module_set)?;
+
+        let top_level = runtime.make_top_level();
+        {
+            let mut stack = top_level.stack();
+            stack.push_int(9);
+            stack.push_import(&ImportSource::new(["test"], "fib"))?;
+        }
+        top_level.call_function(1)?;
+        assert_eq!(
+            Integer::from(55),
+            top_level.stack().get_int(StackIndex::FromTop(0))?
+        );
         Ok(())
     }
 }

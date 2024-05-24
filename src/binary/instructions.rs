@@ -65,6 +65,11 @@ pub enum Instruction {
     /// Pops the top value off of the stack and writes it to the global.
     PopGlobal(u32),
 
+    /// Pops the top value off of the stack, writing it to the given location
+    /// in the local stack. The stack top is counted after the top value has
+    /// been popped.
+    WriteStack(StackIndex),
+
     /// Pop the top N values off of the stack.
     Pop(u32),
 
@@ -192,6 +197,7 @@ impl InstructionListBuilder {
 
     inst_builder!(push_copy, PushCopy(s: StackIndex));
     inst_builder!(pop, Pop(n: u32));
+    inst_builder!(write_stack, WriteStack(s: StackIndex));
     inst_builder!(add, Add);
     inst_builder!(bool_and, BoolAnd);
     inst_builder!(bool_or, BoolOr);

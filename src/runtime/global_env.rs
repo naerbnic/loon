@@ -5,7 +5,7 @@ use super::{
     inst_set::{
         Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, Compare,
         ListAppend, ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal,
-        Return, ReturnDynamic, SetGlobal, TailCall,
+        Return, ReturnDynamic, SetGlobal, TailCall, WriteStack,
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
@@ -43,6 +43,7 @@ impl Inner {
                     Instruction::PushCopy(i) => InstPtr::new(PushCopy::new(*i)),
                     Instruction::PushGlobal(i) => InstPtr::new(PushGlobal::new(*i)),
                     Instruction::PopGlobal(i) => InstPtr::new(SetGlobal::new(*i)),
+                    Instruction::WriteStack(i) => InstPtr::new(WriteStack::new(*i)),
                     Instruction::Pop(i) => InstPtr::new(Pop::new(*i)),
                     Instruction::Add => InstPtr::new(Add),
                     Instruction::BoolAnd => InstPtr::new(BoolAnd),

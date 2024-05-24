@@ -14,6 +14,7 @@ mod return_;
 mod return_dynamic;
 mod set_global;
 mod tail_call;
+mod write_stack;
 
 pub use add::Add;
 pub use bool::{and::BoolAnd, not::BoolNot, or::BoolOr, xor::BoolXor};
@@ -31,3 +32,4 @@ pub use return_::Return;
 pub use return_dynamic::ReturnDynamic;
 pub use set_global::SetGlobal;
 pub use tail_call::TailCall;
+pub use write_stack::WriteStack;

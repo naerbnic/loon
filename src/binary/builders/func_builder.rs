@@ -60,6 +60,7 @@ impl FunctionBuilder {
     def_build_inst_method!(add());
     def_build_inst_method!(push_copy(s: StackIndex));
     def_build_inst_method!(pop(n: u32));
+    def_build_inst_method!(write_stack(s: StackIndex));
     def_build_inst_method!(bool_and());
     def_build_inst_method!(bool_or());
     def_build_inst_method!(bool_xor());
