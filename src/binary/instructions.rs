@@ -206,6 +206,7 @@ impl InstructionListBuilder {
     inst_builder!(compare, Compare(op: CompareOp));
     inst_builder!(call, Call(call: CallInstruction));
     inst_builder!(call_dynamic, CallDynamic);
+    inst_builder!(tail_call, TailCall(num_args: u32));
     inst_builder!(return_, Return(n: u32));
     inst_builder!(return_dynamic, ReturnDynamic);
 

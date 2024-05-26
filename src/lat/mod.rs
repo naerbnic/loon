@@ -520,6 +520,10 @@ fn apply_fn_inst(
                     let num_returns = parse_int(num_returns)? as u32;
                     fn_builder.call(CallInstruction { num_args, num_returns });
                 }
+                ("tail_call", num_args) => {
+                    let num_args = parse_int(num_args)? as u32;
+                    fn_builder.tail_call(num_args);
+                }
                 ("cmp", op) => {
                     let op = parse_symbol(op)?;
                     match op {

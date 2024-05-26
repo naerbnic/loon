@@ -67,6 +67,7 @@ impl FunctionBuilder {
     def_build_inst_method!(bool_not());
     def_build_inst_method!(compare(op: CompareOp));
     def_build_inst_method!(call(call: CallInstruction));
+    def_build_inst_method!(tail_call(num_args: u32));
     def_build_inst_method!(call_dynamic());
     def_build_inst_method!(return_(n: u32));
     def_build_inst_method!(return_dynamic());

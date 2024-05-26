@@ -89,6 +89,7 @@ mod tests {
                                 (cmp ref_eq)
                                 (branch_if #:end)
 
+                                ; Subtract one from iterations
                                 (push_copy bot 0)
                                 (push -1)
                                 (add)
@@ -101,8 +102,7 @@ mod tests {
                                 (write_stack bot 2)
                                 (write_stack bot 1)
                                 (push fib_inner)
-                                (call 3 1)
-                                (return 1)
+                                (tail_call 3)
                                 #:end
                                 (push_copy bot 2)
                                 (return 1)
