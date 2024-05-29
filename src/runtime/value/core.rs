@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     binary::{ConstIndex, ConstValue},
-    gc::{GcRef, GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
     pure_values::{Float, Integer},
     runtime::{
         constants::{ConstLoader, ResolveFunc, ValueTable},
@@ -131,6 +131,17 @@ impl Value {
             _ => false,
         }
     }
+
+    pub fn pin(&self) -> PinnedValue {
+        PinnedValue(match &self.0 {
+            ValueInner::Integer(i) => PinnedValueInner::Integer(i.clone()),
+            ValueInner::Float(f) => PinnedValueInner::Float(f.clone()),
+            ValueInner::Bool(b) => PinnedValueInner::Bool(*b),
+            ValueInner::String(s) => PinnedValueInner::String(s.clone()),
+            ValueInner::List(l) => PinnedValueInner::List(l.pin()),
+            ValueInner::Function(f) => PinnedValueInner::Function(f.pin()),
+        })
+    }
 }
 
 impl GcTraceable for Value {
@@ -213,4 +224,90 @@ impl ConstLoader for ConstValue {
 
         Ok((Value(value), resolver.unwrap_or(Box::new(|_, _| Ok(())))))
     }
+}
+
+pub(crate) struct PinnedValue(PinnedValueInner);
+
+impl PinnedValue {
+    pub fn as_compact_integer(&self) -> Result<i64, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::Integer(i) => i
+                .to_compact_integer()
+                .ok_or_else(|| RuntimeError::new_conversion_error("Integer value is too large.")),
+            _ => Err(RuntimeError::new_type_error("Value is not an integer.")),
+        }
+    }
+
+    pub fn as_bool(&self) -> Result<bool, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::Bool(b) => Ok(*b),
+            _ => Err(RuntimeError::new_type_error("Value is not a boolean.")),
+        }
+    }
+
+    pub fn as_int(&self) -> Result<&Integer, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::Integer(i) => Ok(i),
+            _ => Err(RuntimeError::new_type_error("Value is not an integer.")),
+        }
+    }
+
+    pub fn as_float(&self) -> Result<&Float, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::Float(f) => Ok(f),
+            _ => Err(RuntimeError::new_type_error("Value is not a float.")),
+        }
+    }
+
+    pub fn as_function(&self) -> Result<&PinnedGcRef<Function>, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::Function(f) => Ok(f),
+            _ => Err(RuntimeError::new_type_error("Value is not a function.")),
+        }
+    }
+
+    pub fn as_list(&self) -> Result<&PinnedGcRef<List>, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::List(l) => Ok(l),
+            _ => Err(RuntimeError::new_type_error("Value is not a list.")),
+        }
+    }
+
+    pub fn as_str(&self) -> Result<&ImmString, RuntimeError> {
+        match &self.0 {
+            PinnedValueInner::String(s) => Ok(s),
+            _ => Err(RuntimeError::new_type_error("Value is not a string.")),
+        }
+    }
+
+    pub fn to_value(&self) -> Value {
+        Value(match &self.0 {
+            PinnedValueInner::Integer(i) => ValueInner::Integer(i.clone()),
+            PinnedValueInner::Float(f) => ValueInner::Float(f.clone()),
+            PinnedValueInner::Bool(b) => ValueInner::Bool(*b),
+            PinnedValueInner::String(s) => ValueInner::String(s.clone()),
+            PinnedValueInner::List(l) => ValueInner::List(l.to_ref()),
+            PinnedValueInner::Function(f) => ValueInner::Function(f.to_ref()),
+        })
+    }
+
+    pub fn into_value(self) -> Value {
+        Value(match self.0 {
+            PinnedValueInner::Integer(i) => ValueInner::Integer(i),
+            PinnedValueInner::Float(f) => ValueInner::Float(f),
+            PinnedValueInner::Bool(b) => ValueInner::Bool(b),
+            PinnedValueInner::String(s) => ValueInner::String(s),
+            PinnedValueInner::List(l) => ValueInner::List(l.into_ref()),
+            PinnedValueInner::Function(f) => ValueInner::Function(f.into_ref()),
+        })
+    }
+}
+
+enum PinnedValueInner {
+    Integer(Integer),
+    Float(Float),
+    Bool(bool),
+    String(ImmString),
+    List(PinnedGcRef<List>),
+    Function(PinnedGcRef<Function>),
 }
