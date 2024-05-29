@@ -1,4 +1,3 @@
-
 use std::{alloc::Layout, mem::MaybeUninit, sync::atomic::AtomicUsize};
 
 struct StringHeader {
