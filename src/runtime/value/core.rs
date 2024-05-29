@@ -4,24 +4,16 @@ use crate::{
     binary::{ConstIndex, ConstValue},
     gc::{GcRef, GcRefVisitor, GcTraceable},
     pure_values::{Float, Integer},
+    runtime::{
+        constants::{ConstLoader, ResolveFunc, ValueTable},
+        context::ConstResolutionContext,
+        environment::ModuleImportEnvironment,
+        RuntimeError,
+    },
     util::imm_string::ImmString,
 };
 
-use super::{
-    constants::{ConstLoader, ResolveFunc, ValueTable},
-    context::ConstResolutionContext,
-    environment::ModuleImportEnvironment,
-    error::RuntimeError,
-};
-
-mod function;
-mod list;
-pub use self::function::native::NativeFunctionResult;
-pub(crate) use function::native::{
-    NativeFunctionContext, NativeFunctionPtr, NativeFunctionResultInner,
-};
-pub(crate) use function::Function;
-pub(crate) use list::List;
+use super::{Function, List};
 
 #[derive(Clone)]
 enum ValueInner {
@@ -175,7 +167,7 @@ impl ConstLoader for ConstValue {
     fn load<'a>(
         &'a self,
         ctxt: &'a ConstResolutionContext,
-    ) -> Result<(crate::runtime::value::Value, ResolveFunc<'a>), RuntimeError> {
+    ) -> Result<(Value, ResolveFunc<'a>), RuntimeError> {
         let (value, resolver) = match self {
             ConstValue::Bool(b) => (ValueInner::Bool(*b), None),
             ConstValue::Integer(i) => (ValueInner::Integer(i.clone()), None),
