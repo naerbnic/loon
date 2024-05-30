@@ -9,12 +9,10 @@ use crate::runtime::{
 pub struct ListAppend;
 
 impl InstEval for ListAppend {
-    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let lock = ctxt.get_env().lock_collect();
-        let list_value = stack.pop(&lock)?;
+    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
+        let list_value = stack.pop()?;
         let list = list_value.as_list()?;
-        let value = stack.pop(&lock)?;
-        let list = list.borrow();
+        let value = stack.pop()?;
         list.append(value);
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }

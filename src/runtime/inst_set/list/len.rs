@@ -3,19 +3,18 @@ use crate::runtime::{
     error::Result,
     instructions::{InstEval, InstructionResult, InstructionTarget},
     stack_frame::LocalStack,
-    value::Value,
+    value::PinnedValue,
 };
 
 #[derive(Clone, Debug)]
 pub struct ListLen;
 
 impl InstEval for ListLen {
-    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let lock = ctxt.get_env().lock_collect();
-        let list_value = stack.pop(&lock)?;
-        let list = list_value.as_list()?.borrow();
+    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
+        let list_value = stack.pop()?;
+        let list = list_value.as_list()?;
         let len = list.len();
-        stack.push(Value::new_integer(i64::try_from(len).unwrap().into()));
+        stack.push(PinnedValue::new_integer(i64::try_from(len).unwrap().into()));
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }
 }

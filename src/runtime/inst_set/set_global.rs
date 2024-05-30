@@ -16,8 +16,7 @@ impl SetGlobal {
 
 impl InstEval for SetGlobal {
     fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let lock = ctxt.get_env().lock_collect();
-        let value = stack.pop(&lock)?;
+        let value = stack.pop()?;
         ctxt.set_global(self.0, value)?;
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }

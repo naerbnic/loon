@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
 use crate::{
-    gc::{GcRef, GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
     runtime::{
         constants::ValueTable,
         error::{Result, RuntimeError},
-        global_env::GlobalEnvLock,
+        global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
         stack_frame::{LocalStack, StackFrame},
@@ -16,6 +16,8 @@ use crate::{
 
 use self::managed::ManagedFunction;
 use self::native::NativeFunctionPtr;
+
+use super::PinnedValue;
 
 pub mod managed;
 pub mod native;
@@ -45,83 +47,90 @@ pub(crate) enum Function {
 
 impl Function {
     pub fn new_managed_deferred(
-        global_env: &GlobalEnvLock,
-        global: ModuleGlobals,
+        global_env: &GlobalEnv,
+        global: PinnedGcRef<ModuleGlobals>,
         inst_list: Rc<InstEvalList>,
-    ) -> (GcRef<Self>, impl FnOnce(ValueTable)) {
-        let base_func_value = global_env.create_ref(Function::Managed(
+    ) -> (PinnedGcRef<Self>, impl FnOnce(PinnedGcRef<ValueTable>)) {
+        let base_func_value = global_env.create_pinned_ref(Function::Managed(
             ManagedFunction::new_deferred(global, inst_list),
         ));
 
         (base_func_value.clone(), move |value_table| {
-            let base_func = base_func_value.borrow();
-            let Function::Managed(managed_func) = &*base_func else {
+            let Function::Managed(managed_func) = &*base_func_value else {
                 unreachable!()
             };
             managed_func.resolve_constants(value_table);
         })
     }
 
-    pub fn new_native<T>(global_env: &GlobalEnvLock, native_func: T) -> GcRef<Self>
+    pub fn new_native<T>(global_env: &GlobalEnv, native_func: T) -> PinnedGcRef<Self>
     where
         T: native::NativeFunction + 'static,
     {
-        global_env.create_ref(Function::Native(NativeFunctionPtr::new(native_func)))
+        global_env.create_pinned_ref(Function::Native(NativeFunctionPtr::new(native_func)))
     }
 
     pub fn new_closure(
-        global_env: &GlobalEnvLock,
-        function: GcRef<Function>,
-        captured_values: Vec<Value>,
-    ) -> GcRef<Self> {
-        global_env.create_ref(Function::Closure(Closure {
-            function,
-            captured_values,
+        global_env: &GlobalEnv,
+        function: PinnedGcRef<Function>,
+        captured_values: Vec<PinnedValue>,
+    ) -> PinnedGcRef<Self> {
+        let lock = global_env.lock_collect();
+        global_env.create_pinned_ref(Function::Closure(Closure {
+            function: function.into_ref(lock.guard()),
+            captured_values: captured_values
+                .into_iter()
+                .map(|v| v.into_value(&lock))
+                .collect(),
         }))
     }
 
     pub fn bind_front(
         &self,
-        global_env: &GlobalEnvLock,
-        self_ref: &GcRef<Function>,
-        captured_values: impl Sequence<Value>,
-    ) -> GcRef<Self> {
+        global_env: &GlobalEnv,
+        self_ref: &PinnedGcRef<Function>,
+        captured_values: impl Sequence<PinnedValue>,
+    ) -> PinnedGcRef<Self> {
         match self {
             Function::Managed(_) | Function::Native(_) => {
                 Function::new_closure(global_env, self_ref.clone(), captured_values.collect())
             }
             Function::Closure(closure) => {
-                let mut new_captured_values = closure.captured_values.clone();
+                let mut new_captured_values =
+                    closure.captured_values.iter().map(Value::pin).collect();
                 captured_values.extend_into(&mut new_captured_values);
-                Function::new_closure(global_env, closure.function.clone(), new_captured_values)
+                Function::new_closure(global_env, closure.function.pin(), new_captured_values)
             }
         }
     }
 
     pub fn make_stack_frame(
         &self,
-        env_lock: &GlobalEnvLock,
-        args: impl Sequence<Value>,
-    ) -> Result<StackFrame> {
-        self.make_stack_frame_inner(env_lock, args, LocalStack::new())
+        env: &GlobalEnv,
+        args: impl Sequence<PinnedValue>,
+    ) -> Result<PinnedGcRef<StackFrame>> {
+        self.make_stack_frame_inner(env, args, LocalStack::new(env))
     }
 
     fn make_stack_frame_inner(
         &self,
-        env_lock: &GlobalEnvLock,
-        args: impl Sequence<Value>,
-        local_stack: LocalStack,
-    ) -> Result<StackFrame> {
+        env: &GlobalEnv,
+        args: impl Sequence<PinnedValue>,
+        local_stack: PinnedGcRef<LocalStack>,
+    ) -> Result<PinnedGcRef<StackFrame>> {
         match self {
-            Function::Managed(managed) => managed.make_stack_frame(env_lock, args, local_stack),
-            Function::Native(native) => native.make_stack_frame(env_lock, args, local_stack),
+            Function::Managed(managed) => managed.make_stack_frame(env, args, local_stack),
+            Function::Native(native) => native.make_stack_frame(env, args, local_stack),
             Function::Closure(closure) => {
-                local_stack.push_sequence(wrap_iter(closure.captured_values.iter().cloned()));
+                local_stack.push_sequence(
+                    env,
+                    wrap_iter(closure.captured_values.iter().map(Value::pin)),
+                );
                 let stack_frame = closure
                     .function
                     .try_borrow()
                     .ok_or_else(|| RuntimeError::new_internal_error("Function is not available."))?
-                    .make_stack_frame_inner(env_lock, args, local_stack)?;
+                    .make_stack_frame_inner(env, args, local_stack)?;
                 Ok(stack_frame)
             }
         }

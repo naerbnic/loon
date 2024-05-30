@@ -7,9 +7,9 @@ use crate::{
     runtime::{
         error::Result,
         eval_context::EvalContext,
-        global_env::{GlobalEnv, GlobalEnvLock},
+        global_env::GlobalEnv,
         stack_frame::{LocalStack, StackContext, StackFrame},
-        value::Value,
+        value::PinnedValue,
     },
     util::sequence::Sequence,
 };
@@ -51,11 +51,14 @@ pub enum NativeFunctionResultInner {
 
 pub struct NativeFunctionContext<'a> {
     global_context: &'a GlobalEnv,
-    local_stack: &'a LocalStack,
+    local_stack: &'a PinnedGcRef<LocalStack>,
 }
 
 impl<'a> NativeFunctionContext<'a> {
-    pub(crate) fn new(global_context: &'a GlobalEnv, local_stack: &'a LocalStack) -> Self {
+    pub(crate) fn new(
+        global_context: &'a GlobalEnv,
+        local_stack: &'a PinnedGcRef<LocalStack>,
+    ) -> Self {
         NativeFunctionContext {
             global_context,
             local_stack,
@@ -63,14 +66,11 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     pub fn stack(&mut self) -> StackContext {
-        StackContext::new(&self.global_context.lock_collect(), self.local_stack)
+        StackContext::new(self.global_context, self.local_stack.clone())
     }
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {
-        let function = {
-            let lock = self.global_context.lock_collect();
-            self.local_stack.pop(&lock)?.as_function()?.pin()
-        };
+        let function = self.local_stack.pop()?.as_function()?.clone();
         let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
         eval_context.run(&function, num_args)
     }
@@ -80,10 +80,7 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     pub fn tail_call(self, num_args: u32) -> Result<NativeFunctionResult> {
-        let function = {
-            let lock = self.global_context.lock_collect();
-            self.local_stack.pop(&lock)?.as_function()?.pin()
-        };
+        let function = self.local_stack.pop()?.as_function()?.clone();
         Ok(NativeFunctionResult(NativeFunctionResultInner::TailCall(
             TailCall { function, num_args },
         )))
@@ -94,10 +91,7 @@ impl<'a> NativeFunctionContext<'a> {
         num_args: u32,
         continuation: NativeFunctionPtr,
     ) -> Result<NativeFunctionResult> {
-        let function = {
-            let lock = self.global_context.lock_collect();
-            self.local_stack.pop(&lock)?.as_function()?.pin()
-        };
+        let function = self.local_stack.pop()?.as_function()?.clone();
         Ok(NativeFunctionResult(
             NativeFunctionResultInner::CallWithContinuation(CallWithContinuation {
                 function,
@@ -138,12 +132,12 @@ impl NativeFunctionPtr {
 
     pub(crate) fn make_stack_frame(
         &self,
-        env_lock: &GlobalEnvLock,
-        args: impl Sequence<Value>,
-        local_stack: LocalStack,
-    ) -> Result<StackFrame> {
-        local_stack.push_sequence(args);
-        Ok(StackFrame::new_native(env_lock, self.clone(), local_stack))
+        env: &GlobalEnv,
+        args: impl Sequence<PinnedValue>,
+        local_stack: PinnedGcRef<LocalStack>,
+    ) -> Result<PinnedGcRef<StackFrame>> {
+        local_stack.push_sequence(env, args);
+        Ok(StackFrame::new_native(env, self.clone(), local_stack))
     }
 }
 

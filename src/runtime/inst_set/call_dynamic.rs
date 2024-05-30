@@ -11,12 +11,11 @@ pub struct CallDynamic;
 impl InstEval for CallDynamic {
     fn execute(
         &self,
-        ctxt: &InstEvalContext,
+        _ctxt: &InstEvalContext,
         stack: &LocalStack,
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
-        let lock = ctxt.get_env().lock_collect();
-        let func = stack.pop(&lock)?.as_function()?.clone();
-        let num_args = stack.pop(&lock)?.as_compact_integer()?;
+        let func = stack.pop()?.as_function()?.clone();
+        let num_args = stack.pop()?.as_compact_integer()?;
         let num_args = u32::try_from(num_args).map_err(|_| {
             if num_args < 0 {
                 RuntimeError::new_operation_precondition_error("Number of arguments is negative.")
@@ -25,7 +24,7 @@ impl InstEval for CallDynamic {
             }
         })?;
         Ok(InstructionResult::Call(FunctionCallResult::new(
-            func.pin(),
+            func,
             num_args,
             InstructionTarget::Step,
         )))

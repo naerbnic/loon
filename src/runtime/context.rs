@@ -1,37 +1,39 @@
 //! Global contexts for the current state of a runtime environment.
 
+use crate::gc::PinnedGcRef;
+
 use super::{
     constants::ValueTable,
     environment::ModuleImportEnvironment,
     error::Result,
-    global_env::{GlobalEnv, GlobalEnvLock},
+    global_env::GlobalEnv,
     modules::ModuleGlobals,
-    value::Value,
+    value::{PinnedValue, Value},
 };
 pub struct ConstResolutionContext<'a> {
-    env_lock: GlobalEnvLock<'a>,
-    module_globals: &'a ModuleGlobals,
+    env: &'a GlobalEnv,
+    module_globals: &'a PinnedGcRef<ModuleGlobals>,
     import_environment: &'a ModuleImportEnvironment,
 }
 
 impl<'a> ConstResolutionContext<'a> {
     pub fn new(
-        env_lock: &GlobalEnvLock<'a>,
-        module_globals: &'a ModuleGlobals,
+        env: &'a GlobalEnv,
+        module_globals: &'a PinnedGcRef<ModuleGlobals>,
         import_environment: &'a ModuleImportEnvironment,
     ) -> Self {
         ConstResolutionContext {
-            env_lock: env_lock.clone(),
+            env,
             module_globals,
             import_environment,
         }
     }
 
-    pub fn env_lock(&self) -> &GlobalEnvLock<'a> {
-        &self.env_lock
+    pub fn env(&self) -> &GlobalEnv {
+        self.env
     }
 
-    pub fn module_globals(&self) -> &ModuleGlobals {
+    pub fn module_globals(&self) -> &PinnedGcRef<ModuleGlobals> {
         self.module_globals
     }
 
@@ -63,15 +65,15 @@ impl<'a> InstEvalContext<'a> {
         self.global_context
     }
 
-    pub fn get_constant(&self, index: u32) -> Result<Value> {
-        self.local_constants.at(index).cloned()
+    pub fn get_constant(&self, index: u32) -> Result<PinnedValue> {
+        self.local_constants.at(index).map(Value::pin)
     }
 
-    pub fn get_global(&self, index: u32) -> Result<Value> {
+    pub fn get_global(&self, index: u32) -> Result<PinnedValue> {
         self.globals.at(index)
     }
 
-    pub fn set_global(&self, index: u32, value: Value) -> Result<()> {
+    pub fn set_global(&self, index: u32, value: PinnedValue) -> Result<()> {
         self.globals.set(index, value)
     }
 }

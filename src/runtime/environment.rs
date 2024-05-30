@@ -1,28 +1,39 @@
-use std::rc::Rc;
+use crate::gc::{GcTraceable, PinnedGcRef};
 
 use super::{
     error::{Result, RuntimeError},
-    value::Value,
+    global_env::GlobalEnv,
+    value::{PinnedValue, Value},
 };
 
-/// The environment for functions defined within a module.
-struct ModuleEnvironmentInner {
+#[derive(Clone)]
+pub(crate) struct ModuleImportEnvironment {
     imports: Vec<Value>,
 }
 
-#[derive(Clone)]
-pub(crate) struct ModuleImportEnvironment(Rc<ModuleEnvironmentInner>);
+impl GcTraceable for ModuleImportEnvironment {
+    fn trace<V>(&self, visitor: &mut V)
+    where
+        V: crate::gc::GcRefVisitor,
+    {
+        for value in &self.imports {
+            value.trace(visitor);
+        }
+    }
+}
 
 impl ModuleImportEnvironment {
-    pub fn new(imports: Vec<Value>) -> Self {
-        ModuleImportEnvironment(Rc::new(ModuleEnvironmentInner { imports }))
+    pub fn new(gc_env: &GlobalEnv, imports: Vec<PinnedValue>) -> PinnedGcRef<Self> {
+        let lock = gc_env.lock_collect();
+        gc_env.create_pinned_ref(ModuleImportEnvironment {
+            imports: imports.into_iter().map(|v| v.into_value(&lock)).collect(),
+        })
     }
 
-    pub fn get_import(&self, index: u32) -> Result<Value> {
-        self.0
-            .imports
+    pub fn get_import(&self, index: u32) -> Result<PinnedValue> {
+        self.imports
             .get(usize::try_from(index).unwrap())
-            .cloned()
+            .map(Value::pin)
             .ok_or_else(|| RuntimeError::new_internal_error("Import index out of bounds."))
     }
 }

@@ -9,7 +9,7 @@ use super::{
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
-    value::{Function, Value},
+    value::{Function, PinnedValue, Value},
 };
 use crate::{
     binary::{
@@ -21,15 +21,16 @@ use crate::{
 };
 
 struct Inner {
-    loaded_modules: RefCell<HashMap<ModuleId, Module>>,
+    loaded_modules: RefCell<HashMap<ModuleId, GcRef<Module>>>,
 }
 
 impl Inner {
-    pub fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
+    pub fn get_import(&self, import_source: &ImportSource) -> Result<PinnedValue> {
         let loaded_modules = self.loaded_modules.borrow();
         loaded_modules
             .get(import_source.module_id())
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
+            .borrow()
             .get_export(import_source.import_name())
     }
 
@@ -98,6 +99,10 @@ impl GlobalEnv {
         GlobalEnv { gc_env, inner }
     }
 
+    pub fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
+        self.inner.resolve_instructions(inst_list)
+    }
+
     pub fn lock_collect(&self) -> GlobalEnvLock {
         GlobalEnvLock {
             gc_guard: self.gc_env.lock_collect(),
@@ -117,24 +122,30 @@ impl GlobalEnv {
     /// This does not initialize the module state, and has to be done at a
     /// later pass.
     pub fn load_module(&self, const_module: &binary::modules::ConstModule) -> Result<()> {
-        let collect_guard = self.lock_collect();
-        let module = Module::from_binary(&collect_guard, const_module)?;
+        let module = Module::from_binary(&self, const_module)?;
+        let lock = self.lock_collect();
         self.inner
             .loaded_modules
             .borrow_mut()
-            .insert(const_module.id().clone(), module);
+            .insert(const_module.id().clone(), module.into_ref(lock.guard()));
         Ok(())
+    }
+
+    pub fn get_import(&self, import_source: &ImportSource) -> Result<PinnedValue> {
+        self.inner.get_import(import_source)
     }
 
     pub(super) fn get_init_function(
         &self,
         module_id: &ModuleId,
-    ) -> Result<Option<GcRef<Function>>> {
+    ) -> Result<Option<PinnedGcRef<Function>>> {
         let loaded_modules = self.inner.loaded_modules.borrow();
         loaded_modules
             .get(module_id)
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
+            .borrow()
             .get_init_function()
+            .map(|f| f.map(|f| f.pin()))
     }
 
     pub(super) fn set_module_initialized(&self, module_id: &ModuleId) -> Result<()> {
@@ -142,6 +153,7 @@ impl GlobalEnv {
         loaded_modules
             .get(module_id)
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
+            .borrow()
             .set_is_initialized();
         Ok(())
     }
@@ -158,18 +170,13 @@ pub(crate) struct GlobalEnvLock<'a> {
 }
 
 impl<'a> GlobalEnvLock<'a> {
+    pub fn guard(&self) -> &CollectGuard<'a> {
+        &self.gc_guard
+    }
     pub fn create_ref<T>(&self, value: T) -> GcRef<T>
     where
         T: GcTraceable + 'static,
     {
         self.gc_guard.create_ref(value)
-    }
-
-    pub fn get_import(&self, import_source: &ImportSource) -> Result<Value> {
-        self.inner.get_import(import_source)
-    }
-
-    pub fn resolve_instructions(&self, inst_list: &InstructionList) -> Result<InstEvalList> {
-        self.inner.resolve_instructions(inst_list)
     }
 }

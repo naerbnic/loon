@@ -8,6 +8,7 @@ use crate::{
         constants::{ConstLoader, ResolveFunc, ValueTable},
         context::ConstResolutionContext,
         environment::ModuleImportEnvironment,
+        global_env::GlobalEnvLock,
         RuntimeError,
     },
     util::imm_string::ImmString,
@@ -29,30 +30,6 @@ enum ValueInner {
 pub(crate) struct Value(ValueInner);
 
 impl Value {
-    pub fn new_integer(i: Integer) -> Self {
-        Value(ValueInner::Integer(i))
-    }
-
-    pub fn new_float(f: Float) -> Self {
-        Value(ValueInner::Float(f))
-    }
-
-    pub fn new_bool(b: bool) -> Self {
-        Value(ValueInner::Bool(b))
-    }
-
-    pub fn new_string(s: ImmString) -> Self {
-        Value(ValueInner::String(s))
-    }
-
-    pub fn new_list(l: GcRef<List>) -> Self {
-        Value(ValueInner::List(l))
-    }
-
-    pub fn new_function(f: GcRef<Function>) -> Self {
-        Value(ValueInner::Function(f))
-    }
-
     pub fn as_compact_integer(&self) -> Result<i64, RuntimeError> {
         match &self.0 {
             ValueInner::Integer(i) => i
@@ -132,6 +109,17 @@ impl Value {
         }
     }
 
+    pub fn into_pinned(self) -> PinnedValue {
+        PinnedValue(match self.0 {
+            ValueInner::Integer(i) => PinnedValueInner::Integer(i),
+            ValueInner::Float(f) => PinnedValueInner::Float(f),
+            ValueInner::Bool(b) => PinnedValueInner::Bool(b),
+            ValueInner::String(s) => PinnedValueInner::String(s),
+            ValueInner::List(l) => PinnedValueInner::List(l.into_pinned()),
+            ValueInner::Function(f) => PinnedValueInner::Function(f.into_pinned()),
+        })
+    }
+
     pub fn pin(&self) -> PinnedValue {
         PinnedValue(match &self.0 {
             ValueInner::Integer(i) => PinnedValueInner::Integer(i.clone()),
@@ -163,8 +151,8 @@ impl GcTraceable for Value {
 fn resolve_index(
     const_index: &ConstIndex,
     imports: &ModuleImportEnvironment,
-    consts: &[Value],
-) -> Result<Value, RuntimeError> {
+    consts: &[PinnedValue],
+) -> Result<PinnedValue, RuntimeError> {
     match const_index {
         ConstIndex::ModuleConst(index) => consts
             .get(usize::try_from(*index).unwrap())
@@ -178,18 +166,18 @@ impl ConstLoader for ConstValue {
     fn load<'a>(
         &'a self,
         ctxt: &'a ConstResolutionContext,
-    ) -> Result<(Value, ResolveFunc<'a>), RuntimeError> {
+    ) -> Result<(PinnedValue, ResolveFunc<'a>), RuntimeError> {
         let (value, resolver) = match self {
-            ConstValue::Bool(b) => (ValueInner::Bool(*b), None),
-            ConstValue::Integer(i) => (ValueInner::Integer(i.clone()), None),
-            ConstValue::Float(f) => (ValueInner::Float(f.clone()), None),
-            ConstValue::String(s) => (ValueInner::String(s.clone()), None),
+            ConstValue::Bool(b) => (PinnedValueInner::Bool(*b), None),
+            ConstValue::Integer(i) => (PinnedValueInner::Integer(i.clone()), None),
+            ConstValue::Float(f) => (PinnedValueInner::Float(f.clone()), None),
+            ConstValue::String(s) => (PinnedValueInner::String(s.clone()), None),
             ConstValue::List(list) => {
-                let list_value = ctxt.env_lock().create_ref(List::new());
+                let list_value = List::new(ctxt.env());
                 let resolver: ResolveFunc = {
                     let list_value = list_value.clone();
                     Box::new(move |imports, vs| {
-                        let list_elems = list_value.borrow();
+                        let list_elems = list_value;
                         for index in list {
                             list_elems.append(resolve_index(index, imports, vs)?);
                         }
@@ -197,16 +185,13 @@ impl ConstLoader for ConstValue {
                     })
                 };
 
-                (ValueInner::List(list_value), Some(resolver))
+                (PinnedValueInner::List(list_value), Some(resolver))
             }
             ConstValue::Function(const_func) => {
                 let (deferred, resolve_fn) = Function::new_managed_deferred(
-                    ctxt.env_lock(),
+                    ctxt.env(),
                     ctxt.module_globals().clone(),
-                    Rc::new(
-                        ctxt.env_lock()
-                            .resolve_instructions(const_func.instructions())?,
-                    ),
+                    Rc::new(ctxt.env().resolve_instructions(const_func.instructions())?),
                 );
                 let resolver: ResolveFunc = Box::new(move |imports, vs| {
                     let module_constants = const_func.module_constants();
@@ -215,20 +200,48 @@ impl ConstLoader for ConstValue {
                     for index in module_constants {
                         resolved_func_consts.push(resolve_index(index, imports, vs)?);
                     }
-                    resolve_fn(ValueTable::from_values(resolved_func_consts));
+                    resolve_fn(ValueTable::from_values(ctxt.env(), resolved_func_consts));
                     Ok(())
                 });
-                (ValueInner::Function(deferred), Some(resolver))
+                (PinnedValueInner::Function(deferred), Some(resolver))
             }
         };
 
-        Ok((Value(value), resolver.unwrap_or(Box::new(|_, _| Ok(())))))
+        Ok((
+            PinnedValue(value),
+            resolver.unwrap_or(Box::new(|_, _| Ok(()))),
+        ))
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct PinnedValue(PinnedValueInner);
 
 impl PinnedValue {
+    pub fn new_integer(i: Integer) -> Self {
+        PinnedValue(PinnedValueInner::Integer(i))
+    }
+
+    pub fn new_float(f: Float) -> Self {
+        PinnedValue(PinnedValueInner::Float(f))
+    }
+
+    pub fn new_bool(b: bool) -> Self {
+        PinnedValue(PinnedValueInner::Bool(b))
+    }
+
+    pub fn new_string(s: ImmString) -> Self {
+        PinnedValue(PinnedValueInner::String(s))
+    }
+
+    pub fn new_list(l: PinnedGcRef<List>) -> Self {
+        PinnedValue(PinnedValueInner::List(l))
+    }
+
+    pub fn new_function(f: PinnedGcRef<Function>) -> Self {
+        PinnedValue(PinnedValueInner::Function(f))
+    }
+
     pub fn as_compact_integer(&self) -> Result<i64, RuntimeError> {
         match &self.0 {
             PinnedValueInner::Integer(i) => i
@@ -280,6 +293,36 @@ impl PinnedValue {
         }
     }
 
+    /// Returns true if the two values are the same concrete value, or are the same
+    /// reference.
+    pub fn ref_eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (PinnedValueInner::Bool(b1), PinnedValueInner::Bool(b2)) => b1 == b2,
+            (PinnedValueInner::Integer(i1), PinnedValueInner::Integer(i2)) => i1 == i2,
+            (PinnedValueInner::Float(f1), PinnedValueInner::Float(f2)) => f1 == f2,
+            (PinnedValueInner::String(s1), PinnedValueInner::String(s2)) => s1 == s2,
+            (PinnedValueInner::List(l1), PinnedValueInner::List(l2)) => PinnedGcRef::ref_eq(l1, l2),
+            (PinnedValueInner::Function(f1), PinnedValueInner::Function(f2)) => {
+                PinnedGcRef::ref_eq(f1, f2)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn add_owned(self, other: Self) -> Result<Self, RuntimeError> {
+        match (self.0, other.0) {
+            (PinnedValueInner::Integer(i1), PinnedValueInner::Integer(i2)) => {
+                Ok(PinnedValue(PinnedValueInner::Integer(i1.add_owned(i2))))
+            }
+            (PinnedValueInner::Float(f1), PinnedValueInner::Float(f2)) => {
+                Ok(PinnedValue(PinnedValueInner::Float(f1.add_owned(f2))))
+            }
+            _ => Err(RuntimeError::new_type_error(
+                "Addition is only supported for integers and floats.",
+            )),
+        }
+    }
+
     pub fn to_value(&self) -> Value {
         Value(match &self.0 {
             PinnedValueInner::Integer(i) => ValueInner::Integer(i.clone()),
@@ -291,18 +334,19 @@ impl PinnedValue {
         })
     }
 
-    pub fn into_value(self) -> Value {
+    pub fn into_value(self, env_lock: &GlobalEnvLock) -> Value {
         Value(match self.0 {
             PinnedValueInner::Integer(i) => ValueInner::Integer(i),
             PinnedValueInner::Float(f) => ValueInner::Float(f),
             PinnedValueInner::Bool(b) => ValueInner::Bool(b),
             PinnedValueInner::String(s) => ValueInner::String(s),
-            PinnedValueInner::List(l) => ValueInner::List(l.into_ref()),
-            PinnedValueInner::Function(f) => ValueInner::Function(f.into_ref()),
+            PinnedValueInner::List(l) => ValueInner::List(l.into_ref(env_lock.guard())),
+            PinnedValueInner::Function(f) => ValueInner::Function(f.into_ref(env_lock.guard())),
         })
     }
 }
 
+#[derive(Clone)]
 enum PinnedValueInner {
     Integer(Integer),
     Float(Float),

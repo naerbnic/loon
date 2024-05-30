@@ -18,9 +18,8 @@ impl WriteStack {
 }
 
 impl InstEval for WriteStack {
-    fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let env_lock = ctxt.get_env().lock_collect();
-        let top_value = stack.pop(&env_lock)?;
+    fn execute(&self, _ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
+        let top_value = stack.pop()?;
         stack.set_at_index(self.0, top_value)?;
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }

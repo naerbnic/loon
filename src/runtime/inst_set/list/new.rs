@@ -3,7 +3,7 @@ use crate::runtime::{
     error::Result,
     instructions::{InstEval, InstructionResult, InstructionTarget},
     stack_frame::LocalStack,
-    value::{List, Value},
+    value::{List, PinnedValue},
 };
 
 #[derive(Clone, Debug)]
@@ -11,8 +11,7 @@ pub struct ListNew;
 
 impl InstEval for ListNew {
     fn execute(&self, ctxt: &InstEvalContext, stack: &LocalStack) -> Result<InstructionResult> {
-        let env_lock = ctxt.get_env().lock_collect();
-        let list = Value::new_list(env_lock.create_ref(List::new()));
+        let list = PinnedValue::new_list(List::new(ctxt.get_env()));
         stack.push(list);
         Ok(InstructionResult::Next(InstructionTarget::Step))
     }

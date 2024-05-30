@@ -2,26 +2,34 @@
 //! runtime. They don't themselves refer to Values, as that would require the
 //! presence of a runtime, but they can be used to create Values.
 
-use crate::{binary::const_table::ConstValue, gc::GcTraceable};
+use crate::{
+    binary::const_table::ConstValue,
+    gc::{GcTraceable, PinnedGcRef},
+};
 
 use super::{
     context::ConstResolutionContext,
     environment::ModuleImportEnvironment,
     error::{Result, RuntimeError},
-    value::Value,
+    global_env::GlobalEnv,
+    value::{PinnedValue, Value},
 };
 
-pub type ResolveFunc<'a> = Box<dyn FnOnce(&ModuleImportEnvironment, &[Value]) -> Result<()> + 'a>;
+pub type ResolveFunc<'a> =
+    Box<dyn FnOnce(&ModuleImportEnvironment, &[PinnedValue]) -> Result<()> + 'a>;
 
 pub trait ConstLoader {
-    fn load<'a>(&'a self, ctxt: &'a ConstResolutionContext) -> Result<(Value, ResolveFunc<'a>)>;
+    fn load<'a>(
+        &'a self,
+        ctxt: &'a ConstResolutionContext,
+    ) -> Result<(PinnedValue, ResolveFunc<'a>)>;
 }
 
 pub fn resolve_constants<'a, T>(
     ctxt: &'a ConstResolutionContext,
     imports: &'a ModuleImportEnvironment,
     values: &'a [T],
-) -> Result<Vec<Value>>
+) -> Result<Vec<PinnedValue>>
 where
     T: ConstLoader,
 {
@@ -53,13 +61,19 @@ impl ValueTable {
     /// We allow for self-referential constants and recursive constants via creating
     /// deferred references which will be resolved by the time that constant
     /// resolution completes.
-    pub fn from_binary(const_table: &[ConstValue], ctxt: &ConstResolutionContext) -> Result<Self> {
+    pub fn from_binary(
+        const_table: &[ConstValue],
+        ctxt: &ConstResolutionContext,
+    ) -> Result<PinnedGcRef<Self>> {
         let values = resolve_constants(ctxt, ctxt.import_environment(), const_table)?;
-        Ok(ValueTable(values))
+        Ok(Self::from_values(ctxt.env(), values))
     }
 
-    pub fn from_values(values: Vec<Value>) -> Self {
-        ValueTable(values)
+    pub fn from_values(env: &GlobalEnv, values: Vec<PinnedValue>) -> PinnedGcRef<Self> {
+        let lock = env.lock_collect();
+        env.create_pinned_ref(ValueTable(
+            values.into_iter().map(|v| v.into_value(&lock)).collect(),
+        ))
     }
 
     pub fn at(&self, index: u32) -> Result<&Value> {
@@ -100,10 +114,9 @@ mod tests {
         ];
 
         let global_ctxt = GlobalEnv::new();
-        let ctxt_lock = global_ctxt.lock_collect();
-        let module_globals = ModuleGlobals::from_size_empty(&ctxt_lock, 0);
-        let import_environment = ModuleImportEnvironment::new(vec![]);
-        let ctxt = ConstResolutionContext::new(&ctxt_lock, &module_globals, &import_environment);
+        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
+        let import_environment = ModuleImportEnvironment::new(&global_ctxt, vec![]);
+        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
 
         let resolved_values = ValueTable::from_binary(&const_table, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 3);
@@ -130,10 +143,9 @@ mod tests {
         ];
 
         let global_ctxt = GlobalEnv::new();
-        let ctxt_lock = global_ctxt.lock_collect();
-        let module_globals = ModuleGlobals::from_size_empty(&ctxt_lock, 0);
-        let import_environment = ModuleImportEnvironment::new(vec![]);
-        let ctxt = ConstResolutionContext::new(&ctxt_lock, &module_globals, &import_environment);
+        let module_globals = ModuleGlobals::from_size_empty(&global_ctxt, 0);
+        let import_environment = ModuleImportEnvironment::new(&global_ctxt, vec![]);
+        let ctxt = ConstResolutionContext::new(&global_ctxt, &module_globals, &import_environment);
 
         let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);

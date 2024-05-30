@@ -17,13 +17,12 @@ impl TailCall {
 impl InstEval for TailCall {
     fn execute(
         &self,
-        ctxt: &InstEvalContext,
+        _ctxt: &InstEvalContext,
         stack: &LocalStack,
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
-        let lock = ctxt.get_env().lock_collect();
-        let func = stack.pop(&lock)?.as_function()?.clone();
+        let func = stack.pop()?.as_function()?.clone();
         Ok(InstructionResult::TailCall(FunctionCallResult::new(
-            func.pin(),
+            func,
             self.0,
             InstructionTarget::Step,
         )))

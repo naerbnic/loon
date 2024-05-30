@@ -1,6 +1,6 @@
 use crate::{
     binary::modules::ModuleId,
-    gc::{GcTraceable, PinnedGcRef},
+    gc::{GcRef, GcTraceable, PinnedGcRef},
 };
 
 use super::{
@@ -8,7 +8,7 @@ use super::{
     eval_context::EvalContext,
     global_env::GlobalEnv,
     stack_frame::{LocalStack, StackContext},
-    value::Value,
+    value::PinnedValue,
 };
 
 pub struct Stack<'a> {
@@ -30,7 +30,7 @@ impl<'a> std::ops::DerefMut for Stack<'a> {
 }
 
 struct Inner {
-    stack: LocalStack,
+    stack: GcRef<LocalStack>,
 }
 
 impl GcTraceable for Inner {
@@ -49,9 +49,11 @@ pub struct TopLevelRuntime {
 
 impl TopLevelRuntime {
     pub(crate) fn new(global_context: GlobalEnv) -> Self {
+        let lock = global_context.lock_collect();
         let inner = global_context.create_pinned_ref(Inner {
-            stack: LocalStack::new(),
+            stack: LocalStack::new(&global_context).into_ref(lock.guard()),
         });
+        drop(lock);
         TopLevelRuntime {
             global_context,
             inner,
@@ -61,25 +63,23 @@ impl TopLevelRuntime {
     #[must_use]
     pub fn stack(&self) -> Stack {
         Stack {
-            stack_context: StackContext::new(
-                &self.global_context.lock_collect(),
-                &self.inner.stack,
-            ),
+            stack_context: StackContext::new(&self.global_context, self.inner.stack.pin()),
         }
     }
 
     pub fn call_function(&self, num_args: u32) -> Result<u32> {
-        let function = {
-            let lock = self.global_context.lock_collect();
-            self.inner.stack.pop(&lock)?.as_function()?.pin()
-        };
-        let mut eval_context = EvalContext::new(&self.global_context, &self.inner.stack);
+        let function = self.inner.stack.borrow().pop()?.as_function()?.clone();
+        let local_stack = self.inner.stack.pin();
+        let mut eval_context = EvalContext::new(&self.global_context, &local_stack);
         eval_context.run(&function, num_args)
     }
 
     pub fn init_module(&self, module_id: &ModuleId) -> Result<()> {
         if let Some(init_func) = self.global_context.get_init_function(module_id)? {
-            self.inner.stack.push(Value::new_function(init_func));
+            self.inner
+                .stack
+                .borrow()
+                .push(PinnedValue::new_function(init_func));
             self.call_function(0)?;
             self.global_context.set_module_initialized(module_id)?;
         }

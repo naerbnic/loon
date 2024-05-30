@@ -3,14 +3,14 @@
 use std::{cell::OnceCell, rc::Rc};
 
 use crate::{
-    gc::{GcRefVisitor, GcTraceable},
+    gc::{GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
     runtime::{
         constants::ValueTable,
-        global_env::GlobalEnvLock,
+        global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
         stack_frame::{LocalStack, StackFrame},
-        value::Value,
+        value::PinnedValue,
         Result,
     },
     util::sequence::Sequence,
@@ -18,15 +18,15 @@ use crate::{
 
 /// A managed function, representing code within the Loon runtime to evaluate.
 pub(crate) struct ManagedFunction {
-    globals: ModuleGlobals,
-    constants: OnceCell<ValueTable>,
+    globals: GcRef<ModuleGlobals>,
+    constants: OnceCell<GcRef<ValueTable>>,
     inst_list: Rc<InstEvalList>,
 }
 
 impl ManagedFunction {
-    pub fn new_deferred(globals: ModuleGlobals, inst_list: Rc<InstEvalList>) -> Self {
+    pub fn new_deferred(globals: PinnedGcRef<ModuleGlobals>, inst_list: Rc<InstEvalList>) -> Self {
         ManagedFunction {
-            globals,
+            globals: globals.to_ref(),
             constants: OnceCell::new(),
             inst_list,
         }
@@ -34,26 +34,26 @@ impl ManagedFunction {
 
     pub fn make_stack_frame(
         &self,
-        env_lock: &GlobalEnvLock,
-        args: impl Sequence<Value>,
-        local_stack: LocalStack,
-    ) -> Result<StackFrame> {
-        local_stack.push_sequence(args);
+        env: &GlobalEnv,
+        args: impl Sequence<PinnedValue>,
+        local_stack: PinnedGcRef<LocalStack>,
+    ) -> Result<PinnedGcRef<StackFrame>> {
+        local_stack.push_sequence(env, args);
         Ok(StackFrame::new_managed(
-            env_lock,
+            env,
             self.inst_list.clone(),
-            self.constants().clone(),
-            self.globals.clone(),
+            self.constants().pin(),
+            self.globals.pin(),
             local_stack,
         ))
     }
 
-    pub fn constants(&self) -> &ValueTable {
+    pub fn constants(&self) -> &GcRef<ValueTable> {
         self.constants.get().expect("Constants not resolved.")
     }
 
-    pub fn resolve_constants(&self, constants: ValueTable) {
-        let result = self.constants.set(constants);
+    pub fn resolve_constants(&self, constants: PinnedGcRef<ValueTable>) {
+        let result = self.constants.set(constants.to_ref());
         assert!(result.is_ok(), "Constants already resolved.");
     }
 }

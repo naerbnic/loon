@@ -281,6 +281,10 @@ where
         self.try_borrow().expect("object was deleted")
     }
 
+    pub fn into_pinned(self) -> PinnedGcRef<T> {
+        self.pin()
+    }
+
     pub fn pin(&self) -> PinnedGcRef<T> {
         PinnedGcRef::from_rc(self.obj.upgrade().expect("object was deleted"))
     }
@@ -363,11 +367,15 @@ where
         Self { obj }
     }
 
+    pub fn ref_eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.obj, &other.obj)
+    }
+
     pub fn to_ref(&self) -> GcRef<T> {
         GcRef::from_rc(self.obj.clone())
     }
 
-    pub fn into_ref(self) -> GcRef<T> {
+    pub fn into_ref(self, _env_lock: &CollectGuard) -> GcRef<T> {
         self.to_ref()
     }
 }
