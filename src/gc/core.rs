@@ -346,6 +346,12 @@ where
     }
 }
 
+/// A reference that acts as a root of garbage collection, preventing any
+/// objects reachable from this reference from being collected.
+///
+/// This type does not implement GcTraceable, as it is not intended to be
+/// used as a part of the garbage collection graph. This reduces the risk
+/// of adding fields of this type into garbage collected objects.
 pub struct PinnedGcRef<T>
 where
     T: ?Sized,
@@ -363,14 +369,21 @@ where
         Self { obj }
     }
 
+    /// Returns true iff the two references point to the same object.
     pub fn ref_eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.obj, &other.obj)
     }
 
+    /// Creates a GcRef from this PinnedGcRef. This does not require a
+    /// collect lock, as the object remains pinned.
     pub fn to_ref(&self) -> GcRef<T> {
         GcRef::from_rc(self.obj.clone())
     }
 
+    /// Converts this PinnedGcRef into a GcRef, releasing the pin.
+    /// 
+    /// This requires a collect lock to ensure that the object is not
+    /// collected while the pin is being released.
     pub fn into_ref(self, _env_lock: &CollectGuard) -> GcRef<T> {
         self.to_ref()
     }
