@@ -11,14 +11,16 @@ struct InnerType<T>
 where
     T: ?Sized,
 {
+    env_ptr: Weak<ControlData>,
     ref_count: Counter,
     pin_count: Counter,
     contents: T,
 }
 
 impl<T> InnerType<T> {
-    pub fn new(contents: T) -> Self {
+    pub fn new(env_ptr: &ControlPtr, contents: T) -> Self {
         Self {
+            env_ptr: Rc::downgrade(&env_ptr.control),
             ref_count: Counter::new(),
             pin_count: Counter::new(),
             contents,
@@ -37,26 +39,29 @@ impl PtrKey {
     pub fn from_rc<T>(p: &Rc<InnerType<T>>) -> Self {
         PtrKey(Rc::as_ptr(p) as *const ())
     }
-
-    pub fn from_weak<T>(p: &Weak<InnerType<T>>) -> Option<Self> {
-        Some(PtrKey::from_rc(&p.upgrade()?))
-    }
 }
 
 trait ObjectInfo {
     fn is_pinned(&self) -> bool;
-    fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey));
+    fn trace(&self, control_ptr: &ControlPtr, ptr_visitor: &mut dyn FnMut(PtrKey));
 }
 
-struct PtrVisitor<'a>(&'a mut dyn FnMut(PtrKey));
+struct PtrVisitor<'a> {
+    control_ptr: &'a ControlPtr,
+    visit_func: &'a mut dyn FnMut(PtrKey),
+}
 
 impl GcRefVisitor for PtrVisitor<'_> {
     fn visit<T>(&mut self, obj: &GcRef<T>)
     where
         T: GcTraceable + 'static,
     {
-        if let Some(key) = PtrKey::from_weak(&obj.obj) {
-            (self.0)(key);
+        if let Some(ptr) = obj.obj.upgrade() {
+            // Sanity check that if the object is alive, its environment is the same
+            // we're scanning for.
+            assert!(Rc::downgrade(&self.control_ptr.control).ptr_eq(&ptr.env_ptr));
+
+            (self.visit_func)(PtrKey::from_rc(&ptr));
         }
     }
 }
@@ -80,8 +85,11 @@ where
         self.0.pin_count.is_nonzero()
     }
 
-    fn trace(&self, ptr_visitor: &mut dyn FnMut(PtrKey)) {
-        (*self.0).as_ref().trace(&mut PtrVisitor(ptr_visitor));
+    fn trace(&self, control_ptr: &ControlPtr, ptr_visitor: &mut dyn FnMut(PtrKey)) {
+        (*self.0).as_ref().trace(&mut PtrVisitor {
+            control_ptr,
+            visit_func: ptr_visitor,
+        });
     }
 }
 
@@ -135,7 +143,7 @@ impl ControlPtr {
     where
         T: GcTraceable + 'static,
     {
-        let owned_obj = Rc::new(InnerType::new(value));
+        let owned_obj = Rc::new(InnerType::new(self, value));
         let obj = owned_obj.clone();
         self.accept_rc(owned_obj);
 
@@ -162,7 +170,7 @@ impl ControlPtr {
         while let Some(ptr_id) = worklist.pop_front() {
             if reachable.insert(ptr_id) {
                 if let Some(info) = live_objects.get(&ptr_id) {
-                    info.trace(&mut |key| {
+                    info.trace(self, &mut |key| {
                         if !reachable.contains(&key) {
                             worklist.push_back(key);
                         }
