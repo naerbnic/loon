@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn test_ref_works() {
         let env = GcEnv::new(100);
-        let i_ref = env.create_pinned_ref(4).into_ref(&env.lock_collect());
+        let i_ref = env.create_pinned_ref(4).to_ref();
         let val = *i_ref.borrow();
         assert_eq!(val, 4);
     }
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn test_simple_gc_collect() {
         let env = GcEnv::new(100);
-        let i_ref = env.create_pinned_ref(4).into_ref(&env.lock_collect());
+        let i_ref = env.create_pinned_ref(4).to_ref();
         env.force_collect();
         let val = i_ref.try_borrow();
         assert!(val.is_none());

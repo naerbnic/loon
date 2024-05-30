@@ -27,9 +27,10 @@ impl List {
         env: &GlobalEnv,
         iter: impl IntoIterator<Item = PinnedValue>,
     ) -> PinnedGcRef<Self> {
-        let lock = env.lock_collect();
-        env.create_pinned_ref(List {
-            items: RefCell::new(iter.into_iter().map(|v| v.into_value(&lock)).collect()),
+        env.with_lock(|lock| {
+            env.create_pinned_ref(List {
+                items: RefCell::new(iter.into_iter().map(|v| v.into_value(lock)).collect()),
+            })
         })
     }
 

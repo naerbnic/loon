@@ -70,10 +70,11 @@ impl ValueTable {
     }
 
     pub fn from_values(env: &GlobalEnv, values: Vec<PinnedValue>) -> PinnedGcRef<Self> {
-        let lock = env.lock_collect();
-        env.create_pinned_ref(ValueTable(
-            values.into_iter().map(|v| v.into_value(&lock)).collect(),
-        ))
+        env.with_lock(|lock| {
+            env.create_pinned_ref(ValueTable(
+                values.into_iter().map(|v| v.into_value(lock)).collect(),
+            ))
+        })
     }
 
     pub fn at(&self, index: u32) -> Result<PinnedValue> {

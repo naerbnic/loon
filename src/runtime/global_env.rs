@@ -103,10 +103,12 @@ impl GlobalEnv {
         self.inner.resolve_instructions(inst_list)
     }
 
-    pub fn lock_collect(&self) -> GlobalEnvLock {
-        GlobalEnvLock {
-            gc_guard: self.gc_env.lock_collect(),
-        }
+    pub fn with_lock<F, R>(&self, body: F) -> R
+    where
+        F: FnOnce(&GlobalEnvLock) -> R,
+    {
+        self.gc_env
+            .with_lock(|guard| body(&GlobalEnvLock { gc_guard: guard }))
     }
 
     pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>
@@ -122,11 +124,12 @@ impl GlobalEnv {
     /// later pass.
     pub fn load_module(&self, const_module: &binary::modules::ConstModule) -> Result<()> {
         let module = Module::from_binary(self, const_module)?;
-        let lock = self.lock_collect();
-        self.inner
-            .loaded_modules
-            .borrow_mut()
-            .insert(const_module.id().clone(), module.into_ref(lock.guard()));
+        self.with_lock(|lock| {
+            self.inner
+                .loaded_modules
+                .borrow_mut()
+                .insert(const_module.id().clone(), module.into_ref(lock.guard()))
+        });
         Ok(())
     }
 
@@ -163,11 +166,11 @@ impl GlobalEnv {
 
 #[derive(Clone)]
 pub(crate) struct GlobalEnvLock<'a> {
-    gc_guard: CollectGuard<'a>,
+    gc_guard: &'a CollectGuard<'a>,
 }
 
 impl<'a> GlobalEnvLock<'a> {
     pub fn guard(&self) -> &CollectGuard<'a> {
-        &self.gc_guard
+        self.gc_guard
     }
 }

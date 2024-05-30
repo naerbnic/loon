@@ -24,9 +24,10 @@ impl GcTraceable for ModuleImportEnvironment {
 
 impl ModuleImportEnvironment {
     pub fn new(gc_env: &GlobalEnv, imports: Vec<PinnedValue>) -> PinnedGcRef<Self> {
-        let lock = gc_env.lock_collect();
-        gc_env.create_pinned_ref(ModuleImportEnvironment {
-            imports: imports.into_iter().map(|v| v.into_value(&lock)).collect(),
+        gc_env.with_lock(|lock| {
+            gc_env.create_pinned_ref(ModuleImportEnvironment {
+                imports: imports.into_iter().map(|v| v.into_value(lock)).collect(),
+            })
         })
     }
 

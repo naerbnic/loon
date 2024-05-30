@@ -137,10 +137,11 @@ impl LocalStack {
 
     pub fn push_sequence(&self, env: &GlobalEnv, iter: impl Sequence<PinnedValue>) {
         let values: Vec<_> = iter.collect();
-        let lock = env.lock_collect();
-        self.stack
-            .borrow_mut()
-            .extend(values.into_iter().map(|v| v.into_value(&lock)))
+        env.with_lock(|l| {
+            self.stack
+                .borrow_mut()
+                .extend(values.into_iter().map(|v| v.into_value(l)))
+        })
     }
 
     pub fn len(&self) -> u32 {
@@ -310,13 +311,10 @@ impl ManagedFrameState {
                 };
                 Some(FrameChange::Call(call))
             }
-            InstructionResult::TailCall(func_call) => {
-                let _lock = ctxt.lock_collect();
-                Some(FrameChange::TailCall(CallStepResult {
-                    function: func_call.function().clone(),
-                    num_args: func_call.num_args(),
-                }))
-            }
+            InstructionResult::TailCall(func_call) => Some(FrameChange::TailCall(CallStepResult {
+                function: func_call.function().clone(),
+                num_args: func_call.num_args(),
+            })),
         };
         Ok(result)
     }
@@ -411,14 +409,15 @@ impl StackFrame {
         module_globals: PinnedGcRef<ModuleGlobals>,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> PinnedGcRef<Self> {
-        let lock = env.lock_collect();
-        env.create_pinned_ref(StackFrame {
-            frame_state: FrameState::Managed(ManagedFrameState {
-                inst_state: RefCell::new(InstState::new(inst_list)),
-                local_consts: local_consts.into_ref(lock.guard()),
-                module_globals: module_globals.into_ref(lock.guard()),
-            }),
-            local_stack: local_stack.into_ref(lock.guard()),
+        env.with_lock(|lock| {
+            env.create_pinned_ref(StackFrame {
+                frame_state: FrameState::Managed(ManagedFrameState {
+                    inst_state: RefCell::new(InstState::new(inst_list)),
+                    local_consts: local_consts.into_ref(lock.guard()),
+                    module_globals: module_globals.into_ref(lock.guard()),
+                }),
+                local_stack: local_stack.into_ref(lock.guard()),
+            })
         })
     }
 
@@ -427,12 +426,13 @@ impl StackFrame {
         native_func: NativeFunctionPtr,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> PinnedGcRef<Self> {
-        let lock = env.lock_collect();
-        env.create_pinned_ref(StackFrame {
-            frame_state: FrameState::Native(NativeFrameState {
-                native_func: RefCell::new(native_func),
-            }),
-            local_stack: local_stack.into_ref(lock.guard()),
+        env.with_lock(|lock| {
+            env.create_pinned_ref(StackFrame {
+                frame_state: FrameState::Native(NativeFrameState {
+                    native_func: RefCell::new(native_func),
+                }),
+                local_stack: local_stack.into_ref(lock.guard()),
+            })
         })
     }
 

@@ -94,14 +94,15 @@ impl Module {
         };
         // The module is already initialized if there is no initializer to run.
         let is_initialized = module.initializer().is_none();
-        let lock = ctxt.lock_collect();
-        Ok(ctxt.create_pinned_ref(Module {
-            members: members.into_ref(lock.guard()),
-            module_globals: module_globals.into_ref(lock.guard()),
-            exports: module.exports().clone(),
-            initializer: module.initializer(),
-            is_initialized: Cell::new(is_initialized),
-        }))
+        ctxt.with_lock(|lock| {
+            Ok(ctxt.create_pinned_ref(Module {
+                members: members.into_ref(lock.guard()),
+                module_globals: module_globals.into_ref(lock.guard()),
+                exports: module.exports().clone(),
+                initializer: module.initializer(),
+                is_initialized: Cell::new(is_initialized),
+            }))
+        })
     }
 
     pub fn get_export(&self, name: &ModuleMemberId) -> Result<PinnedValue> {

@@ -75,14 +75,15 @@ impl Function {
         function: PinnedGcRef<Function>,
         captured_values: Vec<PinnedValue>,
     ) -> PinnedGcRef<Self> {
-        let lock = global_env.lock_collect();
-        global_env.create_pinned_ref(Function::Closure(Closure {
-            function: function.into_ref(lock.guard()),
-            captured_values: captured_values
-                .into_iter()
-                .map(|v| v.into_value(&lock))
-                .collect(),
-        }))
+        global_env.with_lock(|lock| {
+            global_env.create_pinned_ref(Function::Closure(Closure {
+                function: function.into_ref(lock.guard()),
+                captured_values: captured_values
+                    .into_iter()
+                    .map(|v| v.into_value(lock))
+                    .collect(),
+            }))
+        })
     }
 
     pub fn bind_front(

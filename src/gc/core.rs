@@ -188,16 +188,20 @@ impl GcEnv {
         Self(ControlPtr::new(alloc_limit))
     }
 
-    pub fn lock_collect(&self) -> CollectGuard {
-        CollectGuard::new(&self.0)
+    pub fn with_lock<F, R>(&self, body: F) -> R
+    where
+        F: FnOnce(&CollectGuard) -> R,
+    {
+        let guard = CollectGuard::new(&self.0);
+        body(&guard)
     }
 
     pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>
     where
         T: GcTraceable + 'static,
     {
-        let collect_guard = self.lock_collect();
-        collect_guard.create_ref(value).pin()
+        let guard = CollectGuard::new(&self.0);
+        guard.create_ref(value).pin()
     }
 
     #[cfg(test)]
@@ -381,7 +385,7 @@ where
     }
 
     /// Converts this PinnedGcRef into a GcRef, releasing the pin.
-    /// 
+    ///
     /// This requires a collect lock to ensure that the object is not
     /// collected while the pin is being released.
     pub fn into_ref(self, _env_lock: &CollectGuard) -> GcRef<T> {

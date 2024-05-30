@@ -49,11 +49,12 @@ impl<'a> EvalContext<'a> {
                 self.global_context,
                 self.parent_stack.drain_top_n(num_args)?,
             )?;
-            let lock = self.global_context.lock_collect();
-            self.inner
-                .call_stack
-                .borrow_mut()
-                .push(stack_frame.into_ref(lock.guard()));
+            self.global_context.with_lock(|lock| {
+                self.inner
+                    .call_stack
+                    .borrow_mut()
+                    .push(stack_frame.into_ref(lock.guard()))
+            });
         }
         loop {
             let frame = self.inner.call_stack.borrow().last().unwrap().pin();
@@ -83,11 +84,12 @@ impl<'a> EvalContext<'a> {
                     let function = call.function;
                     let args = frame.drain_top_n(call.num_args)?;
                     let stack_frame = function.make_stack_frame(self.global_context, args)?;
-                    let lock = self.global_context.lock_collect();
-                    self.inner
-                        .call_stack
-                        .borrow_mut()
-                        .push(stack_frame.into_ref(lock.guard()));
+                    self.global_context.with_lock(|lock| {
+                        self.inner
+                            .call_stack
+                            .borrow_mut()
+                            .push(stack_frame.into_ref(lock.guard()))
+                    });
                 }
                 FrameChange::TailCall(call) => {
                     let function = call.function;
@@ -95,8 +97,9 @@ impl<'a> EvalContext<'a> {
                     let stack_frame = function.make_stack_frame(self.global_context, args)?;
                     let mut call_stack = self.inner.call_stack.borrow_mut();
                     call_stack.pop();
-                    let lock = self.global_context.lock_collect();
-                    call_stack.push(stack_frame.into_ref(lock.guard()));
+                    self.global_context.with_lock(|lock| {
+                        call_stack.push(stack_frame.into_ref(lock.guard()));
+                    });
                 }
             }
         }

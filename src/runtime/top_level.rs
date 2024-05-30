@@ -49,11 +49,11 @@ pub struct TopLevelRuntime {
 
 impl TopLevelRuntime {
     pub(crate) fn new(global_context: GlobalEnv) -> Self {
-        let lock = global_context.lock_collect();
-        let inner = global_context.create_pinned_ref(Inner {
-            stack: LocalStack::new(&global_context).into_ref(lock.guard()),
+        let inner = global_context.with_lock(|lock| {
+            global_context.create_pinned_ref(Inner {
+                stack: LocalStack::new(&global_context).into_ref(lock.guard()),
+            })
         });
-        drop(lock);
         TopLevelRuntime {
             global_context,
             inner,
