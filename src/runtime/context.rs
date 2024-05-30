@@ -3,12 +3,8 @@
 use crate::gc::PinnedGcRef;
 
 use super::{
-    constants::ValueTable,
-    environment::ModuleImportEnvironment,
-    error::Result,
-    global_env::GlobalEnv,
-    modules::ModuleGlobals,
-    value::{PinnedValue, Value},
+    constants::ValueTable, environment::ModuleImportEnvironment, error::Result,
+    global_env::GlobalEnv, modules::ModuleGlobals, value::PinnedValue,
 };
 pub struct ConstResolutionContext<'a> {
     env: &'a GlobalEnv,
@@ -66,7 +62,7 @@ impl<'a> InstEvalContext<'a> {
     }
 
     pub fn get_constant(&self, index: u32) -> Result<PinnedValue> {
-        self.local_constants.at(index).map(Value::pin)
+        self.local_constants.at(index)
     }
 
     pub fn get_global(&self, index: u32) -> Result<PinnedValue> {

@@ -76,9 +76,10 @@ impl ValueTable {
         ))
     }
 
-    pub fn at(&self, index: u32) -> Result<&Value> {
+    pub fn at(&self, index: u32) -> Result<PinnedValue> {
         self.0
             .get(usize::try_from(index).unwrap())
+            .map(Value::pin)
             .ok_or_else(|| RuntimeError::new_internal_error("Index out of bounds."))
     }
 }
@@ -150,12 +151,11 @@ mod tests {
         let resolved_values = ValueTable::from_binary(&values, &ctxt).unwrap();
         assert_eq!(resolved_values.0.len(), 2);
 
-        let list = resolved_values.at(1).unwrap().as_list()?;
+        let list = resolved_values.at(1).unwrap().as_list()?.clone();
 
-        let l = list.borrow();
-        assert_eq!(l.len(), 3);
+        assert_eq!(list.len(), 3);
         for i in 0..3 {
-            assert_eq!(l.at(i).as_int().unwrap(), &42.into());
+            assert_eq!(list.at(i).as_int().unwrap(), &42.into());
         }
 
         Ok(())

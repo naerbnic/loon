@@ -9,7 +9,7 @@ use super::{
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
-    value::{Function, PinnedValue, Value},
+    value::{Function, PinnedValue},
 };
 use crate::{
     binary::{
@@ -106,7 +106,6 @@ impl GlobalEnv {
     pub fn lock_collect(&self) -> GlobalEnvLock {
         GlobalEnvLock {
             gc_guard: self.gc_env.lock_collect(),
-            inner: &self.inner,
         }
     }
 
@@ -122,7 +121,7 @@ impl GlobalEnv {
     /// This does not initialize the module state, and has to be done at a
     /// later pass.
     pub fn load_module(&self, const_module: &binary::modules::ConstModule) -> Result<()> {
-        let module = Module::from_binary(&self, const_module)?;
+        let module = Module::from_binary(self, const_module)?;
         let lock = self.lock_collect();
         self.inner
             .loaded_modules
@@ -145,7 +144,6 @@ impl GlobalEnv {
             .ok_or_else(|| RuntimeError::new_internal_error("Module not found in global context."))?
             .borrow()
             .get_init_function()
-            .map(|f| f.map(|f| f.pin()))
     }
 
     pub(super) fn set_module_initialized(&self, module_id: &ModuleId) -> Result<()> {
@@ -166,17 +164,10 @@ impl GlobalEnv {
 #[derive(Clone)]
 pub(crate) struct GlobalEnvLock<'a> {
     gc_guard: CollectGuard<'a>,
-    inner: &'a Inner,
 }
 
 impl<'a> GlobalEnvLock<'a> {
     pub fn guard(&self) -> &CollectGuard<'a> {
         &self.gc_guard
-    }
-    pub fn create_ref<T>(&self, value: T) -> GcRef<T>
-    where
-        T: GcTraceable + 'static,
-    {
-        self.gc_guard.create_ref(value)
     }
 }

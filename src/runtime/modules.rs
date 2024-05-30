@@ -109,10 +109,10 @@ impl Module {
             .exports
             .get(name)
             .ok_or_else(|| RuntimeError::new_internal_error("Export not found."))?;
-        self.members.borrow().at(*index).map(Value::pin)
+        self.members.borrow().at(*index)
     }
 
-    pub fn get_init_function(&self) -> Result<Option<GcRef<Function>>> {
+    pub fn get_init_function(&self) -> Result<Option<PinnedGcRef<Function>>> {
         if self.is_initialized.get() {
             return Ok(None);
         }

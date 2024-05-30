@@ -288,10 +288,6 @@ where
     pub fn pin(&self) -> PinnedGcRef<T> {
         PinnedGcRef::from_rc(self.obj.upgrade().expect("object was deleted"))
     }
-
-    pub fn ref_eq(&self, other: &Self) -> bool {
-        Weak::ptr_eq(&self.obj, &other.obj)
-    }
 }
 
 impl<T> Clone for GcRef<T>
