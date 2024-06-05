@@ -127,8 +127,13 @@ pub struct CallStepResult {
     pub num_args: u32,
 }
 
+pub struct YieldStepResult {
+    pub function: PinnedGcRef<Function>,
+}
+
 pub enum FrameChange {
     Return(u32),
     Call(CallStepResult),
     TailCall(CallStepResult),
+    YieldCall(YieldStepResult),
 }

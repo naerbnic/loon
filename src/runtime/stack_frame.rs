@@ -15,6 +15,7 @@ use super::{
     global_env::GlobalEnv,
     instructions::{
         CallStepResult, FrameChange, InstEval, InstEvalList, InstructionResult, InstructionTarget,
+        YieldStepResult,
     },
     modules::ModuleGlobals,
     value::{
@@ -358,12 +359,22 @@ impl NativeFrameState {
             NativeFunctionResultInner::ReturnValue(num_values) => {
                 Ok(FrameChange::Return(num_values))
             }
-            NativeFunctionResultInner::TailCall(_) => todo!(),
+            NativeFunctionResultInner::TailCall(tail_call) => {
+                Ok(FrameChange::TailCall(CallStepResult {
+                    function: tail_call.function,
+                    num_args: tail_call.num_args,
+                }))
+            }
             NativeFunctionResultInner::CallWithContinuation(call) => {
                 *self.native_func.borrow_mut() = call.continuation().clone();
                 Ok(FrameChange::Call(CallStepResult {
                     function: call.function().clone(),
                     num_args: call.num_args(),
+                }))
+            }
+            NativeFunctionResultInner::YieldCall(call) => {
+                Ok(FrameChange::YieldCall(YieldStepResult {
+                    function: call.function,
                 }))
             }
         }

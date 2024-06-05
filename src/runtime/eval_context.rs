@@ -101,6 +101,7 @@ impl<'a> EvalContext<'a> {
                         call_stack.push(stack_frame.into_ref(lock.guard()));
                     });
                 }
+                FrameChange::YieldCall(_call) => todo!(),
             }
         }
     }

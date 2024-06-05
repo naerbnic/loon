@@ -17,8 +17,8 @@ use crate::{
 use super::Function;
 
 pub(crate) struct TailCall {
-    function: PinnedGcRef<Function>,
-    num_args: u32,
+    pub function: PinnedGcRef<Function>,
+    pub num_args: u32,
 }
 
 pub(crate) struct CallWithContinuation {
@@ -41,12 +41,30 @@ impl CallWithContinuation {
     }
 }
 
+pub(crate) struct YieldCall {
+    /// The function that will be called with the continuation as an argument.
+    pub function: PinnedGcRef<Function>,
+}
+
 pub struct NativeFunctionResult(pub(crate) NativeFunctionResultInner);
 
 pub enum NativeFunctionResultInner {
+    /// Returns a set of values to the caller. The values are found on the
+    /// top of the stack.
     ReturnValue(u32),
+
+    /// Tail call to another function. This is equivalent to calling the
+    /// referenced function, and then returning the result.
     TailCall(TailCall),
+
+    /// Call with a continuation. This must provide another function to call
+    /// when the provided function is done. The continuation function will
+    /// receive the return values of the provided function as arguments.
     CallWithContinuation(CallWithContinuation),
+
+    /// Yield to the closest enclosing continuation scope, or the top-level
+    /// if that does not exist.
+    YieldCall(YieldCall),
 }
 
 pub struct NativeFunctionContext<'a> {
