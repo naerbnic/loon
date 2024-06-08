@@ -120,6 +120,10 @@ pub enum Instruction {
     /// Calls a function, and returns from the current function with the return
     /// values of the called function.
     TailCall(u32),
+
+    /// Binds N arguments to a function, returning a new function that takes
+    /// the remaining arguments.
+    BindFront(u32),
 }
 
 #[derive(Clone, Debug)]
@@ -209,6 +213,7 @@ impl InstructionListBuilder {
     inst_builder!(tail_call, TailCall(num_args: u32));
     inst_builder!(return_, Return(n: u32));
     inst_builder!(return_dynamic, ReturnDynamic);
+    inst_builder!(bind_front, BindFront(n: u32));
 
     // These are only used in testing, as the top-level builder delays the
     // resolution of push/pop instructions until the end.

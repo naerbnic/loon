@@ -74,6 +74,7 @@ impl FunctionBuilder {
     def_build_inst_method!(branch_if(target: &str));
     def_build_inst_method!(branch(target: &str));
     def_build_inst_method!(define_branch_target(target: &str));
+    def_build_inst_method!(bind_front(num_args: u32));
 
     pub fn build(self) -> Result<()> {
         let mut instructions = self.insts;

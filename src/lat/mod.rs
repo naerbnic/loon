@@ -533,6 +533,10 @@ fn apply_fn_inst(
                         _ => return Err(Error::UnexpectedSymbol(op.to_string())),
                     }
                 }
+                ("bind_front", num_args) => {
+                    let num_args = parse_int(num_args)? as u32;
+                    fn_builder.bind_front(num_args);
+                }
             }
         }
         _ => {

@@ -276,3 +276,39 @@ enum PinnedValueInner {
     List(PinnedGcRef<List>),
     Function(PinnedGcRef<Function>),
 }
+
+impl From<Integer> for PinnedValue {
+    fn from(i: Integer) -> Self {
+        PinnedValue(PinnedValueInner::Integer(i))
+    }
+}
+
+impl From<Float> for PinnedValue {
+    fn from(f: Float) -> Self {
+        PinnedValue(PinnedValueInner::Float(f))
+    }
+}
+
+impl From<bool> for PinnedValue {
+    fn from(b: bool) -> Self {
+        PinnedValue(PinnedValueInner::Bool(b))
+    }
+}
+
+impl From<ImmString> for PinnedValue {
+    fn from(s: ImmString) -> Self {
+        PinnedValue(PinnedValueInner::String(s))
+    }
+}
+
+impl From<PinnedGcRef<List>> for PinnedValue {
+    fn from(l: PinnedGcRef<List>) -> Self {
+        PinnedValue(PinnedValueInner::List(l))
+    }
+}
+
+impl From<PinnedGcRef<Function>> for PinnedValue {
+    fn from(f: PinnedGcRef<Function>) -> Self {
+        PinnedValue(PinnedValueInner::Function(f))
+    }
+}

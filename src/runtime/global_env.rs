@@ -3,9 +3,9 @@ use std::{cell::RefCell, collections::HashMap};
 use super::{
     error::{Result, RuntimeError},
     inst_set::{
-        Add, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic, Compare,
-        ListAppend, ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy, PushGlobal,
-        Return, ReturnDynamic, SetGlobal, TailCall, WriteStack,
+        Add, BindFront, BoolAnd, BoolNot, BoolOr, BoolXor, Branch, BranchIf, Call, CallDynamic,
+        Compare, ListAppend, ListGet, ListLen, ListNew, ListSet, Pop, PushConst, PushCopy,
+        PushGlobal, Return, ReturnDynamic, SetGlobal, TailCall, WriteStack,
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
@@ -64,6 +64,7 @@ impl Inner {
                     Instruction::Return(i) => InstPtr::new(Return::new(*i)),
                     Instruction::ReturnDynamic => InstPtr::new(ReturnDynamic),
                     Instruction::TailCall(i) => InstPtr::new(TailCall::new(*i)),
+                    Instruction::BindFront(i) => InstPtr::new(BindFront::new(*i)),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
