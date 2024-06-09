@@ -8,10 +8,8 @@ use crate::{
         error::Result,
         eval_context::EvalContext,
         global_env::GlobalEnv,
-        stack_frame::{LocalStack, StackContext, StackFrame},
-        value::PinnedValue,
+        stack_frame::{LocalStack, PinnedValueList, StackContext, StackFrame},
     },
-    util::sequence::Sequence,
 };
 
 use super::Function;
@@ -70,16 +68,19 @@ pub enum NativeFunctionResultInner {
 pub struct NativeFunctionContext<'a> {
     global_context: &'a GlobalEnv,
     local_stack: &'a PinnedGcRef<LocalStack>,
+    temp_stack: &'a mut PinnedValueList,
 }
 
 impl<'a> NativeFunctionContext<'a> {
     pub(crate) fn new(
         global_context: &'a GlobalEnv,
         local_stack: &'a PinnedGcRef<LocalStack>,
+        temp_stack: &'a mut PinnedValueList,
     ) -> Self {
         NativeFunctionContext {
             global_context,
             local_stack,
+            temp_stack,
         }
     }
 
@@ -89,7 +90,8 @@ impl<'a> NativeFunctionContext<'a> {
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {
         let function = self.local_stack.pop()?.as_function()?.clone();
-        let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
+        let mut eval_context =
+            EvalContext::new(self.global_context, self.local_stack, self.temp_stack);
         eval_context.run(&function, num_args)
     }
 
@@ -151,10 +153,10 @@ impl NativeFunctionPtr {
     pub(crate) fn make_stack_frame(
         &self,
         env: &GlobalEnv,
-        args: impl Sequence<PinnedValue>,
+        args: &mut PinnedValueList,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> Result<PinnedGcRef<StackFrame>> {
-        local_stack.push_sequence(env, args);
+        local_stack.push_iter(env, args.drain(..));
         Ok(StackFrame::new_native(env, self.clone(), local_stack))
     }
 }

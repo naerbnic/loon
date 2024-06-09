@@ -1,10 +1,8 @@
 use std::rc::Rc;
 
-use crate::gc::{GcRefVisitor, GcTraceable, PinnedGcRef};
+use crate::gc::{GcRefVisitor, GcTraceable};
 
-use super::{
-    context::InstEvalContext, error::RuntimeError, stack_frame::LocalStack, value::Function,
-};
+use super::{context::InstEvalContext, error::RuntimeError, stack_frame::LocalStack};
 
 #[derive(Clone, Copy, Debug)]
 pub enum InstructionTarget {
@@ -13,26 +11,16 @@ pub enum InstructionTarget {
 }
 
 pub struct FunctionCallResult {
-    function: PinnedGcRef<Function>,
     num_args: u32,
     return_target: InstructionTarget,
 }
 
 impl FunctionCallResult {
-    pub fn new(
-        function: PinnedGcRef<Function>,
-        num_args: u32,
-        return_target: InstructionTarget,
-    ) -> Self {
+    pub fn new(num_args: u32, return_target: InstructionTarget) -> Self {
         FunctionCallResult {
-            function,
             num_args,
             return_target,
         }
-    }
-
-    pub fn function(&self) -> &PinnedGcRef<Function> {
-        &self.function
     }
 
     pub fn num_args(&self) -> u32 {
@@ -123,13 +111,10 @@ impl GcTraceable for InstEvalList {
 }
 
 pub struct CallStepResult {
-    pub function: PinnedGcRef<Function>,
     pub num_args: u32,
 }
 
-pub struct YieldStepResult {
-    pub function: PinnedGcRef<Function>,
-}
+pub struct YieldStepResult;
 
 pub enum FrameChange {
     Return(u32),

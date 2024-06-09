@@ -14,7 +14,6 @@ impl InstEval for CallDynamic {
         _ctxt: &InstEvalContext,
         stack: &LocalStack,
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
-        let func = stack.pop()?.as_function()?.clone();
         let num_args = stack.pop()?.as_compact_integer()?;
         let num_args = u32::try_from(num_args).map_err(|_| {
             if num_args < 0 {
@@ -24,7 +23,6 @@ impl InstEval for CallDynamic {
             }
         })?;
         Ok(InstructionResult::Call(FunctionCallResult::new(
-            func,
             num_args,
             InstructionTarget::Step,
         )))

@@ -18,11 +18,9 @@ impl InstEval for TailCall {
     fn execute(
         &self,
         _ctxt: &InstEvalContext,
-        stack: &LocalStack,
+        _stack: &LocalStack,
     ) -> std::prelude::v1::Result<InstructionResult, RuntimeError> {
-        let func = stack.pop()?.as_function()?.clone();
         Ok(InstructionResult::TailCall(FunctionCallResult::new(
-            func,
             self.0,
             InstructionTarget::Step,
         )))

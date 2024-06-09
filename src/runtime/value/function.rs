@@ -8,10 +8,9 @@ use crate::{
         global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
-        stack_frame::{LocalStack, StackFrame},
+        stack_frame::{LocalStack, PinnedValueList, StackFrame},
         value::Value,
     },
-    util::sequence::{wrap_iter, Sequence},
 };
 
 use self::managed::ManagedFunction;
@@ -73,15 +72,12 @@ impl Function {
     pub fn new_closure(
         global_env: &GlobalEnv,
         function: PinnedGcRef<Function>,
-        captured_values: Vec<PinnedValue>,
+        captured_values: impl Iterator<Item = PinnedValue>,
     ) -> PinnedGcRef<Self> {
         global_env.with_lock(|lock| {
             global_env.create_pinned_ref(Function::Closure(Closure {
                 function: function.into_ref(lock.guard()),
-                captured_values: captured_values
-                    .into_iter()
-                    .map(|v| v.into_value(lock))
-                    .collect(),
+                captured_values: captured_values.map(|v| v.into_value(lock)).collect(),
             }))
         })
     }
@@ -90,25 +86,28 @@ impl Function {
         &self,
         global_env: &GlobalEnv,
         self_ref: &PinnedGcRef<Function>,
-        captured_values: impl Sequence<PinnedValue>,
+        captured_values: &mut PinnedValueList,
     ) -> PinnedGcRef<Self> {
         match self {
             Function::Managed(_) | Function::Native(_) => {
-                Function::new_closure(global_env, self_ref.clone(), captured_values.collect())
+                Function::new_closure(global_env, self_ref.clone(), captured_values.drain(..))
             }
-            Function::Closure(closure) => {
-                let mut new_captured_values =
-                    closure.captured_values.iter().map(Value::pin).collect();
-                captured_values.extend_into(&mut new_captured_values);
-                Function::new_closure(global_env, closure.function.pin(), new_captured_values)
-            }
+            Function::Closure(closure) => Function::new_closure(
+                global_env,
+                closure.function.pin(),
+                closure
+                    .captured_values
+                    .iter()
+                    .map(Value::pin)
+                    .chain(captured_values.drain(..)),
+            ),
         }
     }
 
     pub fn make_stack_frame(
         &self,
         env: &GlobalEnv,
-        args: impl Sequence<PinnedValue>,
+        args: &mut PinnedValueList,
     ) -> Result<PinnedGcRef<StackFrame>> {
         self.make_stack_frame_inner(env, args, LocalStack::new(env))
     }
@@ -116,17 +115,14 @@ impl Function {
     fn make_stack_frame_inner(
         &self,
         env: &GlobalEnv,
-        args: impl Sequence<PinnedValue>,
+        args: &mut PinnedValueList,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> Result<PinnedGcRef<StackFrame>> {
         match self {
             Function::Managed(managed) => managed.make_stack_frame(env, args, local_stack),
             Function::Native(native) => native.make_stack_frame(env, args, local_stack),
             Function::Closure(closure) => {
-                local_stack.push_sequence(
-                    env,
-                    wrap_iter(closure.captured_values.iter().map(Value::pin)),
-                );
+                local_stack.push_iter(env, closure.captured_values.iter().map(Value::pin));
                 let stack_frame = closure
                     .function
                     .try_borrow()

@@ -89,19 +89,17 @@ mod tests {
                                 (cmp ref_eq)
                                 (branch_if #:end)
 
+                                (push fib_inner)
+
                                 ; Subtract one from iterations
                                 (push_copy bot 0)
                                 (push -1)
                                 (add)
-                                (write_stack bot 0)
 
                                 (push_copy bot 2)
                                 (push_copy bot 2)
                                 (push_copy bot 1)
                                 (add)
-                                (write_stack bot 2)
-                                (write_stack bot 1)
-                                (push fib_inner)
                                 (tail_call 3)
                                 #:end
                                 (push_copy bot 2)
@@ -109,9 +107,10 @@ mod tests {
                                 ))
                         (const fib
                             (fn 
+                                (push fib_inner)
+                                (push_copy bot 0)
                                 (push 0)
                                 (push 1)
-                                (push fib_inner)
                                 (call 3 1)
                                 (return 1)))
                         (export fib)))

@@ -5,7 +5,7 @@ use crate::{
     gc::{GcRef, GcRefVisitor, GcTraceable, PinnedGcRef},
     pure_values::{Float, Integer},
     runtime::value::NativeFunctionResult,
-    util::{imm_string::ImmString, sequence::Sequence},
+    util::imm_string::ImmString,
 };
 
 use super::{
@@ -61,6 +61,8 @@ impl GcTraceable for InstState {
         self.inst_list.trace(visitor);
     }
 }
+
+pub(crate) type PinnedValueList = Vec<PinnedValue>;
 
 pub(crate) struct LocalStack {
     stack: RefCell<Vec<Value>>,
@@ -125,28 +127,23 @@ impl LocalStack {
         Ok(())
     }
 
-    pub fn drain_top_n(&self, len: u32) -> Result<LocalStackTop> {
+    pub fn drain_top_n(&self, len: u32, temp_stack: &mut PinnedValueList) -> Result<()> {
         let len = len as usize;
-        let start = self.stack.borrow().len().checked_sub(len).ok_or_else(|| {
+        let mut src_stack = self.stack.borrow_mut();
+        let start = src_stack.len().checked_sub(len).ok_or_else(|| {
             RuntimeError::new_operation_precondition_error("Local stack is too small.")
         })?;
-        Ok(LocalStackTop {
-            source: self,
-            start,
-        })
+        temp_stack.extend(src_stack[start..].iter().map(Value::pin));
+        src_stack.truncate(start);
+        Ok(())
     }
 
-    pub fn push_sequence(&self, env: &GlobalEnv, iter: impl Sequence<PinnedValue>) {
-        let values: Vec<_> = iter.collect();
+    pub fn push_iter(&self, env: &GlobalEnv, iter: impl Iterator<Item = PinnedValue>) {
         env.with_lock(|l| {
             self.stack
                 .borrow_mut()
-                .extend(values.into_iter().map(|v| v.into_value(l)))
+                .extend(iter.map(|v| v.into_value(l)))
         })
-    }
-
-    pub fn len(&self) -> u32 {
-        u32::try_from(self.stack.borrow().len()).unwrap()
     }
 }
 
@@ -158,38 +155,6 @@ impl GcTraceable for LocalStack {
         for value in self.stack.borrow().iter() {
             value.trace(visitor);
         }
-    }
-}
-
-pub struct LocalStackTop<'a> {
-    source: &'a LocalStack,
-    start: usize,
-}
-
-impl Sequence<PinnedValue> for LocalStackTop<'_> {
-    fn collect<T>(self) -> T
-    where
-        T: FromIterator<PinnedValue>,
-    {
-        self.source
-            .stack
-            .borrow_mut()
-            .drain(self.start..)
-            .map(Value::into_pinned)
-            .collect()
-    }
-
-    fn extend_into<T>(self, target: &mut T)
-    where
-        T: Extend<PinnedValue>,
-    {
-        target.extend(
-            self.source
-                .stack
-                .borrow_mut()
-                .drain(self.start..)
-                .map(Value::into_pinned),
-        );
     }
 }
 
@@ -238,15 +203,6 @@ impl<'a> StackContext<'a> {
         Ok(())
     }
 
-    pub fn make_closure(&mut self, num_args: u32) -> Result<()> {
-        let function = self.stack.pop()?.as_function()?.clone();
-        let captured_values = self.stack.drain_top_n(num_args)?;
-        let new_value =
-            PinnedValue::new_function(function.bind_front(self.env, &function, captured_values));
-        self.stack.push(new_value);
-        Ok(())
-    }
-
     pub fn push_native_function<F>(&mut self, function: F)
     where
         F: Fn(NativeFunctionContext) -> Result<NativeFunctionResult> + 'static,
@@ -292,10 +248,11 @@ impl ManagedFrameState {
         &self,
         ctxt: &GlobalEnv,
         local_stack: &PinnedGcRef<LocalStack>,
+        temp_stack: &mut PinnedValueList,
     ) -> Result<Option<FrameChange>> {
         let local_consts = self.local_consts.pin();
         let globals = self.module_globals.pin();
-        let inst_eval_ctxt = InstEvalContext::new(ctxt, &local_consts, &globals);
+        let inst_eval_ctxt = InstEvalContext::new(ctxt, &local_consts, &globals, temp_stack);
         let mut inst_state = self.inst_state.borrow_mut();
         let inst = inst_state.curr_inst();
         let result = match inst.execute(&inst_eval_ctxt, local_stack)? {
@@ -307,13 +264,11 @@ impl ManagedFrameState {
             InstructionResult::Call(func_call) => {
                 inst_state.update_pc(func_call.return_target())?;
                 let call = CallStepResult {
-                    function: func_call.function().clone(),
                     num_args: func_call.num_args(),
                 };
                 Some(FrameChange::Call(call))
             }
             InstructionResult::TailCall(func_call) => Some(FrameChange::TailCall(CallStepResult {
-                function: func_call.function().clone(),
                 num_args: func_call.num_args(),
             })),
         };
@@ -324,9 +279,10 @@ impl ManagedFrameState {
         &self,
         ctxt: &GlobalEnv,
         local_stack: &PinnedGcRef<LocalStack>,
+        temp_stack: &mut PinnedValueList,
     ) -> Result<FrameChange> {
         loop {
-            if let Some(result) = self.step(ctxt, local_stack)? {
+            if let Some(result) = self.step(ctxt, local_stack, temp_stack)? {
                 return Ok(result);
             }
         }
@@ -353,29 +309,26 @@ impl NativeFrameState {
         &self,
         env: &GlobalEnv,
         local_stack: &PinnedGcRef<LocalStack>,
+        temp_stack: &mut PinnedValueList,
     ) -> Result<FrameChange> {
-        let ctxt = NativeFunctionContext::new(env, local_stack);
+        let ctxt = NativeFunctionContext::new(env, local_stack, temp_stack);
         match self.native_func.borrow().call(ctxt)?.0 {
             NativeFunctionResultInner::ReturnValue(num_values) => {
                 Ok(FrameChange::Return(num_values))
             }
             NativeFunctionResultInner::TailCall(tail_call) => {
                 Ok(FrameChange::TailCall(CallStepResult {
-                    function: tail_call.function,
                     num_args: tail_call.num_args,
                 }))
             }
             NativeFunctionResultInner::CallWithContinuation(call) => {
                 *self.native_func.borrow_mut() = call.continuation().clone();
                 Ok(FrameChange::Call(CallStepResult {
-                    function: call.function().clone(),
                     num_args: call.num_args(),
                 }))
             }
-            NativeFunctionResultInner::YieldCall(call) => {
-                Ok(FrameChange::YieldCall(YieldStepResult {
-                    function: call.function,
-                }))
+            NativeFunctionResultInner::YieldCall(_call) => {
+                Ok(FrameChange::YieldCall(YieldStepResult))
             }
         }
     }
@@ -447,28 +400,29 @@ impl StackFrame {
         })
     }
 
-    pub fn run_to_frame_change(&self, ctxt: &GlobalEnv) -> Result<FrameChange> {
+    pub fn run_to_frame_change(
+        &self,
+        ctxt: &GlobalEnv,
+        temp_stack: &mut PinnedValueList,
+    ) -> Result<FrameChange> {
         let local_stack = self.local_stack.pin();
         match &self.frame_state {
-            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &local_stack),
-            FrameState::Native(state) => state.run_to_frame_change(ctxt, &local_stack),
+            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &local_stack, temp_stack),
+            FrameState::Native(state) => state.run_to_frame_change(ctxt, &local_stack, temp_stack),
         }
     }
 
-    pub fn push_sequence(&self, env: &GlobalEnv, seq: impl Sequence<PinnedValue>) {
-        self.local_stack.borrow().push_sequence(env, seq);
+    pub fn pop(&self) -> Result<PinnedValue> {
+        self.local_stack.borrow().pop()
     }
 
-    pub fn drain_top_n(&self, len: u32) -> Result<StackFrameTop> {
-        if self.local_stack.borrow().len() < len {
-            return Err(RuntimeError::new_operation_precondition_error(
-                "Local stack is too small.",
-            ));
-        }
-        Ok(StackFrameTop {
-            frame: self,
-            num_values: len,
-        })
+    pub fn push_iter(&self, env: &GlobalEnv, iter: impl Iterator<Item = PinnedValue>) {
+        self.local_stack.borrow().push_iter(env, iter);
+    }
+
+    pub fn drain_top_n(&self, len: u32, temp_stack: &mut PinnedValueList) -> Result<()> {
+        let src_stack = self.local_stack.borrow();
+        src_stack.drain_top_n(len, temp_stack)
     }
 }
 
@@ -479,36 +433,5 @@ impl GcTraceable for StackFrame {
     {
         self.frame_state.trace(visitor);
         self.local_stack.trace(visitor);
-    }
-}
-
-pub struct StackFrameTop<'a> {
-    frame: &'a StackFrame,
-    num_values: u32,
-}
-
-impl<'a> Sequence<PinnedValue> for StackFrameTop<'a> {
-    fn collect<T>(self) -> T
-    where
-        T: FromIterator<PinnedValue>,
-    {
-        self.frame
-            .local_stack
-            .borrow()
-            .drain_top_n(self.num_values)
-            .expect("Not enough elements in stack")
-            .collect()
-    }
-
-    fn extend_into<T>(self, target: &mut T)
-    where
-        T: Extend<PinnedValue>,
-    {
-        self.frame
-            .local_stack
-            .borrow()
-            .drain_top_n(self.num_values)
-            .expect("Not enough elements in stack")
-            .extend_into(target);
     }
 }

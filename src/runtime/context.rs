@@ -1,10 +1,13 @@
 //! Global contexts for the current state of a runtime environment.
 
+use std::cell::RefCell;
+
 use crate::gc::PinnedGcRef;
 
 use super::{
     constants::ValueTable, environment::ModuleImportEnvironment, error::Result,
-    global_env::GlobalEnv, modules::ModuleGlobals, value::PinnedValue,
+    global_env::GlobalEnv, modules::ModuleGlobals, stack_frame::PinnedValueList,
+    value::PinnedValue,
 };
 pub struct ConstResolutionContext<'a> {
     env: &'a GlobalEnv,
@@ -42,6 +45,7 @@ pub struct InstEvalContext<'a> {
     global_context: &'a GlobalEnv,
     local_constants: &'a ValueTable,
     globals: &'a ModuleGlobals,
+    temp_stack: RefCell<&'a mut PinnedValueList>,
 }
 
 impl<'a> InstEvalContext<'a> {
@@ -49,11 +53,13 @@ impl<'a> InstEvalContext<'a> {
         global_context: &'a GlobalEnv,
         local_constants: &'a ValueTable,
         globals: &'a ModuleGlobals,
+        temp_stack: &'a mut PinnedValueList,
     ) -> Self {
         InstEvalContext {
             global_context,
             local_constants,
             globals,
+            temp_stack: RefCell::new(temp_stack),
         }
     }
 
@@ -71,5 +77,12 @@ impl<'a> InstEvalContext<'a> {
 
     pub fn set_global(&self, index: u32, value: PinnedValue) -> Result<()> {
         self.globals.set(index, value)
+    }
+
+    pub fn with_temp_stack<F, R>(&self, body: F) -> R
+    where
+        F: FnOnce(&mut PinnedValueList) -> R,
+    {
+        body(*self.temp_stack.borrow_mut())
     }
 }

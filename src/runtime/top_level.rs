@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::{
     binary::modules::ModuleId,
     gc::{GcRef, GcTraceable, PinnedGcRef},
@@ -7,7 +9,7 @@ use super::{
     error::Result,
     eval_context::EvalContext,
     global_env::GlobalEnv,
-    stack_frame::{LocalStack, StackContext},
+    stack_frame::{LocalStack, PinnedValueList, StackContext},
     value::PinnedValue,
 };
 
@@ -45,6 +47,7 @@ impl GcTraceable for Inner {
 pub struct TopLevelRuntime {
     global_context: GlobalEnv,
     inner: PinnedGcRef<Inner>,
+    temp_stack: RefCell<PinnedValueList>,
 }
 
 impl TopLevelRuntime {
@@ -57,6 +60,7 @@ impl TopLevelRuntime {
         TopLevelRuntime {
             global_context,
             inner,
+            temp_stack: RefCell::new(PinnedValueList::new()),
         }
     }
 
@@ -70,7 +74,9 @@ impl TopLevelRuntime {
     pub fn call_function(&self, num_args: u32) -> Result<u32> {
         let function = self.inner.stack.borrow().pop()?.as_function()?.clone();
         let local_stack = self.inner.stack.pin();
-        let mut eval_context = EvalContext::new(&self.global_context, &local_stack);
+        let mut temp_stack = self.temp_stack.borrow_mut();
+        let mut eval_context =
+            EvalContext::new(&self.global_context, &local_stack, &mut temp_stack);
         eval_context.run(&function, num_args)
     }
 

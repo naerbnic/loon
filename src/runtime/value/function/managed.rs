@@ -9,11 +9,9 @@ use crate::{
         global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
-        stack_frame::{LocalStack, StackFrame},
-        value::PinnedValue,
+        stack_frame::{LocalStack, PinnedValueList, StackFrame},
         Result,
     },
-    util::sequence::Sequence,
 };
 
 /// A managed function, representing code within the Loon runtime to evaluate.
@@ -35,10 +33,10 @@ impl ManagedFunction {
     pub fn make_stack_frame(
         &self,
         env: &GlobalEnv,
-        args: impl Sequence<PinnedValue>,
+        args: &mut PinnedValueList,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> Result<PinnedGcRef<StackFrame>> {
-        local_stack.push_sequence(env, args);
+        local_stack.push_iter(env, args.drain(..));
         Ok(StackFrame::new_managed(
             env,
             self.inst_list.clone(),
