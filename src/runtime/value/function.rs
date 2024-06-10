@@ -8,7 +8,7 @@ use crate::{
         global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
-        stack_frame::{LocalStack, PinnedValueList, StackFrame},
+        stack_frame::{LocalStack, PinnedValueBuffer, StackFrame},
         value::Value,
     },
 };
@@ -86,7 +86,7 @@ impl Function {
         &self,
         global_env: &GlobalEnv,
         self_ref: &PinnedGcRef<Function>,
-        captured_values: &mut PinnedValueList,
+        captured_values: &mut PinnedValueBuffer,
     ) -> PinnedGcRef<Self> {
         match self {
             Function::Managed(_) | Function::Native(_) => {
@@ -107,7 +107,7 @@ impl Function {
     pub fn make_stack_frame(
         &self,
         env: &GlobalEnv,
-        args: &mut PinnedValueList,
+        args: &mut PinnedValueBuffer,
     ) -> Result<PinnedGcRef<StackFrame>> {
         self.make_stack_frame_inner(env, args, LocalStack::new(env))
     }
@@ -115,7 +115,7 @@ impl Function {
     fn make_stack_frame_inner(
         &self,
         env: &GlobalEnv,
-        args: &mut PinnedValueList,
+        args: &mut PinnedValueBuffer,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> Result<PinnedGcRef<StackFrame>> {
         match self {

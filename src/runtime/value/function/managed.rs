@@ -9,7 +9,7 @@ use crate::{
         global_env::GlobalEnv,
         instructions::InstEvalList,
         modules::ModuleGlobals,
-        stack_frame::{LocalStack, PinnedValueList, StackFrame},
+        stack_frame::{LocalStack, PinnedValueBuffer, StackFrame},
         Result,
     },
 };
@@ -33,7 +33,7 @@ impl ManagedFunction {
     pub fn make_stack_frame(
         &self,
         env: &GlobalEnv,
-        args: &mut PinnedValueList,
+        args: &mut PinnedValueBuffer,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> Result<PinnedGcRef<StackFrame>> {
         local_stack.push_iter(env, args.drain(..));

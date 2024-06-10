@@ -9,7 +9,7 @@ use super::{
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
-    stack_frame::PinnedValueList,
+    stack_frame::PinnedValueBuffer,
     value::{Function, PinnedValue},
 };
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
 struct Inner {
     loaded_modules: RefCell<HashMap<ModuleId, GcRef<Module>>>,
     // Precondition: All buffers are empty.
-    value_buffers: RefCell<Vec<PinnedValueList>>,
+    value_buffers: RefCell<Vec<PinnedValueBuffer>>,
 }
 
 impl Inner {
@@ -118,7 +118,7 @@ impl GlobalEnv {
 
     pub fn with_value_buffer<F, R>(&self, body: F) -> R
     where
-        F: FnOnce(&mut PinnedValueList) -> R,
+        F: FnOnce(&mut PinnedValueBuffer) -> R,
     {
         let mut buffer = self
             .inner

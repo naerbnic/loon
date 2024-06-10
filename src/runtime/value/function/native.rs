@@ -8,7 +8,7 @@ use crate::{
         error::Result,
         eval_context::EvalContext,
         global_env::GlobalEnv,
-        stack_frame::{LocalStack, PinnedValueList, StackContext, StackFrame},
+        stack_frame::{LocalStack, PinnedValueBuffer, StackContext, StackFrame},
     },
 };
 
@@ -149,7 +149,7 @@ impl NativeFunctionPtr {
     pub(crate) fn make_stack_frame(
         &self,
         env: &GlobalEnv,
-        args: &mut PinnedValueList,
+        args: &mut PinnedValueBuffer,
         local_stack: PinnedGcRef<LocalStack>,
     ) -> Result<PinnedGcRef<StackFrame>> {
         local_stack.push_iter(env, args.drain(..));

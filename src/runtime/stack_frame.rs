@@ -62,7 +62,7 @@ impl GcTraceable for InstState {
     }
 }
 
-pub(crate) type PinnedValueList = Vec<PinnedValue>;
+pub(crate) type PinnedValueBuffer = Vec<PinnedValue>;
 
 pub(crate) struct LocalStack {
     stack: RefCell<Vec<Value>>,
@@ -127,7 +127,7 @@ impl LocalStack {
         Ok(())
     }
 
-    pub fn drain_top_n(&self, len: u32, buffer: &mut PinnedValueList) -> Result<()> {
+    pub fn drain_top_n(&self, len: u32, buffer: &mut PinnedValueBuffer) -> Result<()> {
         let len = len as usize;
         let mut src_stack = self.stack.borrow_mut();
         let start = src_stack.len().checked_sub(len).ok_or_else(|| {
@@ -413,7 +413,7 @@ impl StackFrame {
         self.local_stack.borrow().push_iter(env, iter);
     }
 
-    pub fn drain_top_n(&self, len: u32, buffer: &mut PinnedValueList) -> Result<()> {
+    pub fn drain_top_n(&self, len: u32, buffer: &mut PinnedValueBuffer) -> Result<()> {
         let src_stack = self.local_stack.borrow();
         src_stack.drain_top_n(len, buffer)
     }
