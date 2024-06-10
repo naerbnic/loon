@@ -127,13 +127,13 @@ impl LocalStack {
         Ok(())
     }
 
-    pub fn drain_top_n(&self, len: u32, temp_stack: &mut PinnedValueList) -> Result<()> {
+    pub fn drain_top_n(&self, len: u32, buffer: &mut PinnedValueList) -> Result<()> {
         let len = len as usize;
         let mut src_stack = self.stack.borrow_mut();
         let start = src_stack.len().checked_sub(len).ok_or_else(|| {
             RuntimeError::new_operation_precondition_error("Local stack is too small.")
         })?;
-        temp_stack.extend(src_stack[start..].iter().map(Value::pin));
+        buffer.extend(src_stack[start..].iter().map(Value::pin));
         src_stack.truncate(start);
         Ok(())
     }
@@ -248,11 +248,10 @@ impl ManagedFrameState {
         &self,
         ctxt: &GlobalEnv,
         local_stack: &PinnedGcRef<LocalStack>,
-        temp_stack: &mut PinnedValueList,
     ) -> Result<Option<FrameChange>> {
         let local_consts = self.local_consts.pin();
         let globals = self.module_globals.pin();
-        let inst_eval_ctxt = InstEvalContext::new(ctxt, &local_consts, &globals, temp_stack);
+        let inst_eval_ctxt = InstEvalContext::new(ctxt, &local_consts, &globals);
         let mut inst_state = self.inst_state.borrow_mut();
         let inst = inst_state.curr_inst();
         let result = match inst.execute(&inst_eval_ctxt, local_stack)? {
@@ -279,10 +278,9 @@ impl ManagedFrameState {
         &self,
         ctxt: &GlobalEnv,
         local_stack: &PinnedGcRef<LocalStack>,
-        temp_stack: &mut PinnedValueList,
     ) -> Result<FrameChange> {
         loop {
-            if let Some(result) = self.step(ctxt, local_stack, temp_stack)? {
+            if let Some(result) = self.step(ctxt, local_stack)? {
                 return Ok(result);
             }
         }
@@ -309,9 +307,8 @@ impl NativeFrameState {
         &self,
         env: &GlobalEnv,
         local_stack: &PinnedGcRef<LocalStack>,
-        temp_stack: &mut PinnedValueList,
     ) -> Result<FrameChange> {
-        let ctxt = NativeFunctionContext::new(env, local_stack, temp_stack);
+        let ctxt = NativeFunctionContext::new(env, local_stack);
         match self.native_func.borrow().call(ctxt)?.0 {
             NativeFunctionResultInner::ReturnValue(num_values) => {
                 Ok(FrameChange::Return(num_values))
@@ -400,15 +397,11 @@ impl StackFrame {
         })
     }
 
-    pub fn run_to_frame_change(
-        &self,
-        ctxt: &GlobalEnv,
-        temp_stack: &mut PinnedValueList,
-    ) -> Result<FrameChange> {
+    pub fn run_to_frame_change(&self, ctxt: &GlobalEnv) -> Result<FrameChange> {
         let local_stack = self.local_stack.pin();
         match &self.frame_state {
-            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &local_stack, temp_stack),
-            FrameState::Native(state) => state.run_to_frame_change(ctxt, &local_stack, temp_stack),
+            FrameState::Managed(state) => state.run_to_frame_change(ctxt, &local_stack),
+            FrameState::Native(state) => state.run_to_frame_change(ctxt, &local_stack),
         }
     }
 
@@ -420,9 +413,9 @@ impl StackFrame {
         self.local_stack.borrow().push_iter(env, iter);
     }
 
-    pub fn drain_top_n(&self, len: u32, temp_stack: &mut PinnedValueList) -> Result<()> {
+    pub fn drain_top_n(&self, len: u32, buffer: &mut PinnedValueList) -> Result<()> {
         let src_stack = self.local_stack.borrow();
-        src_stack.drain_top_n(len, temp_stack)
+        src_stack.drain_top_n(len, buffer)
     }
 }
 

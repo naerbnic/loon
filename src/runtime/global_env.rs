@@ -9,6 +9,7 @@ use super::{
     },
     instructions::{InstEvalList, InstPtr},
     modules::Module,
+    stack_frame::PinnedValueList,
     value::{Function, PinnedValue},
 };
 use crate::{
@@ -22,6 +23,8 @@ use crate::{
 
 struct Inner {
     loaded_modules: RefCell<HashMap<ModuleId, GcRef<Module>>>,
+    // Precondition: All buffers are empty.
+    value_buffers: RefCell<Vec<PinnedValueList>>,
 }
 
 impl Inner {
@@ -96,6 +99,7 @@ impl GlobalEnv {
         let gc_env = GcEnv::new(1);
         let inner = gc_env.create_pinned_ref(Inner {
             loaded_modules: RefCell::new(HashMap::new()),
+            value_buffers: RefCell::new(Vec::new()),
         });
         GlobalEnv { gc_env, inner }
     }
@@ -110,6 +114,23 @@ impl GlobalEnv {
     {
         self.gc_env
             .with_lock(|guard| body(&GlobalEnvLock { gc_guard: guard }))
+    }
+
+    pub fn with_value_buffer<F, R>(&self, body: F) -> R
+    where
+        F: FnOnce(&mut PinnedValueList) -> R,
+    {
+        let mut buffer = self
+            .inner
+            .value_buffers
+            .borrow_mut()
+            .pop()
+            .unwrap_or_default();
+
+        let result = body(&mut buffer);
+        buffer.clear();
+        self.inner.value_buffers.borrow_mut().push(buffer);
+        result
     }
 
     pub fn create_pinned_ref<T>(&self, value: T) -> PinnedGcRef<T>

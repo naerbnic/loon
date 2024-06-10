@@ -68,19 +68,16 @@ pub enum NativeFunctionResultInner {
 pub struct NativeFunctionContext<'a> {
     global_context: &'a GlobalEnv,
     local_stack: &'a PinnedGcRef<LocalStack>,
-    temp_stack: &'a mut PinnedValueList,
 }
 
 impl<'a> NativeFunctionContext<'a> {
     pub(crate) fn new(
         global_context: &'a GlobalEnv,
         local_stack: &'a PinnedGcRef<LocalStack>,
-        temp_stack: &'a mut PinnedValueList,
     ) -> Self {
         NativeFunctionContext {
             global_context,
             local_stack,
-            temp_stack,
         }
     }
 
@@ -90,8 +87,7 @@ impl<'a> NativeFunctionContext<'a> {
 
     pub fn call(&mut self, num_args: u32) -> Result<u32> {
         let function = self.local_stack.pop()?.as_function()?.clone();
-        let mut eval_context =
-            EvalContext::new(self.global_context, self.local_stack, self.temp_stack);
+        let mut eval_context = EvalContext::new(self.global_context, self.local_stack);
         eval_context.run(&function, num_args)
     }
 
